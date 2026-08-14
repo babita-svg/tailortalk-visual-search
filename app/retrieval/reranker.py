@@ -6,7 +6,7 @@ fabric texture/weave patterns, and spatial composition analysis.
 
 from dataclasses import dataclass
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from PIL import Image
 
