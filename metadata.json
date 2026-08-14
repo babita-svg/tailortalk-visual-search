@@ -1,0 +1,6 @@
+{
+  "name": "TailorTalk",
+  "description": "Visual Saree Similarity Search Agent with fine-grained visual embeddings, multi-stage retrieval, and conversational AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
