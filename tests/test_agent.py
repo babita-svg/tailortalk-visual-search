@@ -102,6 +102,19 @@ def test_agent_visual_search_execution(mock_search_tool):
     assert "Top Match" in reply or "analyzed" in reply.lower()
 
 
+def test_agent_candidate_k_propagation(mock_search_tool):
+    """Verify candidate_k specified in agent process_message reaches the search tool."""
+    agent = TailorTalkAgent(search_tool=mock_search_tool)
+    reply, results = agent.process_message(
+        user_message="Find sarees similar to this image",
+        image_input="sample_query.jpg",
+        top_k=4,
+        candidate_k=40,
+    )
+    mock_search_tool.run.assert_called_once_with(image_reference="sample_query.jpg", top_k=4, candidate_k=40)
+    assert results is not None
+
+
 def test_agent_comparison_flow(mock_search_tool):
     """Verify comparative reasoning on previously retrieved items."""
     agent = TailorTalkAgent(search_tool=mock_search_tool)

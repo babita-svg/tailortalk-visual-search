@@ -59,9 +59,9 @@ FAISS IndexFlatIP         │                     │
 ## 5. Fine-Grained Similarity Signals
 
 - **Embedding Similarity ($S_{\text{emb}}$)**: Cosine similarity between 512-dimensional OpenCLIP visual embeddings.
-- **Color Similarity ($S_{\text{col}}$)**: 3D HSV histogram correlation and Bhattacharyya distance across hue, saturation, and value distributions.
-- **Texture Similarity ($S_{\text{tex}}$)**: Gradient-based texture statistics across horizontal and vertical frequencies capturing weave tightness, zari density, and jacquard patterns.
-- **Spatial Composition ($S_{\text{comp}}$)**: $3 \times 3$ spatial grid feature matching comparing corresponding regions (pallu, body, pleats, and border placement).
+- **Color Similarity ($S_{\text{col}}$)**: 3D HSV histogram correlation and dominant RGB color proximity across hue, saturation, and value distributions.
+- **Texture Similarity ($S_{\text{tex}}$)**: Gradient-based texture statistics across horizontal and vertical image intensity variations measuring local surface texture structure.
+- **Spatial Composition ($S_{\text{comp}}$)**: $3 \times 3$ spatial grid color layout matching comparing corresponding image regions.
 
 ## 6. Agent / Tool Architecture
 
@@ -72,7 +72,7 @@ FAISS IndexFlatIP         │                     │
 
 ## 7. Dataset / Catalogue
 
-- **Authentic Saree Catalog**: High-resolution catalog spanning key Indian textile traditions including Banarasi, Kanjeevaram, Chanderi, Bandhani, Kalamkari, Patola, Paithani, Tussar, and Organza.
+- **Curated Saree Image Catalogue**: High-resolution catalog spanning key Indian textile traditions including Banarasi, Kanjeevaram, Chanderi, Bandhani, Kalamkari, Patola, Paithani, Tussar, and Organza.
 - **Metadata Attributes**: Primary color, fabric type, weave style, border type, zari type, and dimensions.
 - **Integrity**: Filename attributes are truthful and distinct from runtime visual feature extractions. When specific textile attributes are unknown, they are displayed as `Unknown` without synthetic fabrication.
 

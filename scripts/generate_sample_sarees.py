@@ -1,4 +1,4 @@
-"""Script to generate a rich, authentic catalog of saree images with diverse fabrics, weaves, borders, and pallus."""
+"""Script to generate a curated catalogue of sample saree images with diverse colors and textile patterns."""
 
 import math
 import os
@@ -310,7 +310,7 @@ def generate_saree_image(spec: dict, width: int = 400, height: int = 560) -> Ima
 
 
 def main():
-    print(f"Generating {len(SAREE_CATALOG)} authentic saree catalog images in '{OUTPUT_DIR}'...")
+    print(f"Generating {len(SAREE_CATALOG)} curated saree catalog images in '{OUTPUT_DIR}'...")
     for idx, item in enumerate(SAREE_CATALOG, 1):
         target_path = OUTPUT_DIR / item["filename"]
         img = generate_saree_image(item)
