@@ -137,10 +137,26 @@ python scripts/build_index.py
 To launch the Streamlit web application on port 3000:
 
 ```bash
-streamlit run ui/streamlit_app.py --server.port=3000 --server.address=0.0.0.0
+streamlit run app.py --server.port=3000 --server.address=0.0.0.0
 ```
 
-## 15. Run Tests
+## 15. Production Deployment (Render)
+
+TailorTalk is configured for single-click deployment on **Render** as a Python Web Service.
+
+### Quick Setup Steps
+1. Push repository to GitHub: `babita-svg/tailortalk-visual-search`
+2. In the Render Dashboard, select **New +** → **Web Service**
+3. Connect the GitHub repository
+4. Set configurations:
+   - **Environment**: `Python`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `streamlit run app.py --server.address 0.0.0.0 --server.port $PORT --server.headless true`
+5. Click **Deploy Web Service**
+
+Alternatively, Render automatically detects the root `render.yaml` Blueprint specification.
+
+## 16. Run Tests
 
 Execute the unit and integration test suite:
 
@@ -148,7 +164,7 @@ Execute the unit and integration test suite:
 pytest
 ```
 
-## 16. Run Evaluation
+## 17. Run Evaluation
 
 Run the quantitative retrieval evaluation benchmark:
 
@@ -156,7 +172,7 @@ Run the quantitative retrieval evaluation benchmark:
 python scripts/evaluate_retrieval.py
 ```
 
-## 17. Project Structure
+## 18. Project Structure
 
 ```
 ├── app/
