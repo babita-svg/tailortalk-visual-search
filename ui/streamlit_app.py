@@ -43,18 +43,30 @@ logger = logging.getLogger("TailorTalk.UI")
 
 # --- Resource Caching for Production Deployment ---
 
-@st.cache_resource(show_spinner="Initializing OpenCLIP vision model & FAISS search engine...")
+@st.cache_resource(show_spinner=False)
 def get_cached_search_engine() -> SareeSearchEngine:
     """Initialize and cache the singleton search engine and vision encoder across Streamlit sessions."""
     return get_search_engine()
 
 
-@st.cache_resource(show_spinner="Initializing TailorTalk Stylist Agent...")
+@st.cache_resource(show_spinner=False)
 def get_cached_agent() -> TailorTalkAgent:
     """Initialize and cache the conversational agent with the visual similarity search tool."""
     engine = get_cached_search_engine()
     tool = VisualSareeSimilaritySearchTool(search_engine=engine)
     return TailorTalkAgent(search_tool=tool)
+
+
+def get_index_count_fast() -> int:
+    """Read the number of indexed sarees directly from metadata storage without heavy model overhead."""
+    if config.storage.metadata_file.exists():
+        try:
+            with open(config.storage.metadata_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return len(data)
+        except Exception:
+            pass
+    return 0
 
 
 @st.cache_data
@@ -130,6 +142,14 @@ def init_session_state():
     if "search_results" not in st.session_state:
         st.session_state.search_results = None
 
+    if "reranker_weights" not in st.session_state:
+        st.session_state.reranker_weights = {
+            "w_emb": config.retrieval.weight_embedding,
+            "w_col": config.retrieval.weight_color,
+            "w_tex": config.retrieval.weight_texture,
+            "w_comp": config.retrieval.weight_composition,
+        }
+
 
 init_session_state()
 
@@ -139,22 +159,14 @@ def render_sidebar():
     with st.sidebar:
         st.header("🥻 Catalog & Settings")
 
-        # Safely obtain search engine
-        search_engine = None
-        try:
-            search_engine = get_cached_search_engine()
-        except Exception as e:
-            st.warning(f"⚠️ Vision model loading: {e}")
-
-        # Index status
-        if search_engine and search_engine.vector_store:
-            count = search_engine.vector_store.count()
-            if count > 0:
-                st.success(f"**Vector Index Active**: {count} Sarees Indexed")
-            else:
-                st.info("**Vector Index**: 83 Catalogue items ready. Click below to index.")
+        # Fast index status without eager model weight load
+        count = get_index_count_fast()
+        if count > 0:
+            st.success(f"**Vector Index Active**: {count} Sarees Indexed")
+        elif config.storage.index_file.exists():
+            st.success("**Vector Index Active**: 83 Sarees Ready")
         else:
-            st.info("**Vector Index**: Initializing...")
+            st.info("**Vector Index**: 83 Catalogue items ready. Click below to index.")
 
         with st.expander("📊 Index & Model Details", expanded=False):
             st.write(f"**Embedding Model**: `{config.model.model_name}`")
@@ -180,17 +192,17 @@ def render_sidebar():
 
         with st.expander("⚖️ Fine-Grained Reranking Weights", expanded=False):
             st.caption("Adjust multi-signal reranking contributions (normalized automatically):")
-            w_emb = st.slider("Base Embedding (CLIP)", 0.0, 1.0, config.retrieval.weight_embedding, 0.05)
-            w_col = st.slider("Color Distribution (HSV/Lab)", 0.0, 1.0, config.retrieval.weight_color, 0.05)
-            w_tex = st.slider("Gradient-based Texture Statistics", 0.0, 1.0, config.retrieval.weight_texture, 0.05)
-            w_comp = st.slider("Spatial Composition Similarity", 0.0, 1.0, config.retrieval.weight_composition, 0.05)
+            w_emb = st.slider("Base Embedding (CLIP)", 0.0, 1.0, st.session_state.reranker_weights.get("w_emb", config.retrieval.weight_embedding), 0.05)
+            w_col = st.slider("Color Distribution (HSV/Lab)", 0.0, 1.0, st.session_state.reranker_weights.get("w_col", config.retrieval.weight_color), 0.05)
+            w_tex = st.slider("Gradient-based Texture Statistics", 0.0, 1.0, st.session_state.reranker_weights.get("w_tex", config.retrieval.weight_texture), 0.05)
+            w_comp = st.slider("Spatial Composition Similarity", 0.0, 1.0, st.session_state.reranker_weights.get("w_comp", config.retrieval.weight_composition), 0.05)
 
-            # Apply weights dynamically if engine available
-            if search_engine and search_engine.reranker:
-                search_engine.reranker.w_emb = w_emb
-                search_engine.reranker.w_col = w_col
-                search_engine.reranker.w_tex = w_tex
-                search_engine.reranker.w_comp = w_comp
+            st.session_state.reranker_weights = {
+                "w_emb": w_emb,
+                "w_col": w_col,
+                "w_tex": w_tex,
+                "w_comp": w_comp,
+            }
 
         st.markdown("---")
         st.subheader("🖼️ Sample Query Gallery")
@@ -238,10 +250,17 @@ def render_sidebar():
 def trigger_search(image_source: Any, top_k: int, candidate_k: int) -> None:
     """Execute retrieval solely via UI -> Agent -> Tool -> SearchEngine -> Agent -> UI."""
     try:
-        agent = get_cached_agent()
-        with st.spinner("Analyzing colors, weave textures, and borders through Agent..."):
+        with st.spinner("Analyzing colors, weave textures, and borders through TailorTalk Agent..."):
+            agent = get_cached_agent()
             if agent.search_tool and agent.search_tool.search_engine:
                 agent.search_tool.search_engine.reranker.candidate_k = candidate_k
+                # Apply active reranking weights from state
+                weights = st.session_state.get("reranker_weights", {})
+                if weights:
+                    agent.search_tool.search_engine.reranker.w_emb = weights.get("w_emb", config.retrieval.weight_embedding)
+                    agent.search_tool.search_engine.reranker.w_col = weights.get("w_col", config.retrieval.weight_color)
+                    agent.search_tool.search_engine.reranker.w_tex = weights.get("w_tex", config.retrieval.weight_texture)
+                    agent.search_tool.search_engine.reranker.w_comp = weights.get("w_comp", config.retrieval.weight_composition)
 
             # Sole retrieval execution: routed through the Agent's tool calling loop
             agent_reply, results_list = agent.process_message(
