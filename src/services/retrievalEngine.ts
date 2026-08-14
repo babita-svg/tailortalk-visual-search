@@ -103,7 +103,7 @@ export function performVisualRetrieval(
 
   logs.push(`[Stage 1] Retrieved top ${stage1Candidates.length} vector candidates from index.`);
   logs.push(`[Stage 2] Extracting fine-grained HSV color histograms & Lab color delta...`);
-  logs.push(`[Stage 3] Calculating Sobel weave texture gradient & Korvai border alignment...`);
+  logs.push(`[Stage 3] Calculating gradient-based texture statistics & spatial border alignment...`);
 
   // Stage 2 & 3: Multi-Signal Reranking
   const wSum = (options.weightEmbedding + options.weightColor + options.weightTexture + options.weightComposition) || 1.0;

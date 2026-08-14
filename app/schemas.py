@@ -7,11 +7,19 @@ from pydantic import BaseModel, Field
 class SareeMetadata(BaseModel):
     """Metadata attributes for a catalog saree."""
 
-    image_id: str = Field(..., description="Unique alphanumeric identifier (stem of filename)")
+    image_id: str = Field(..., description="Unique alphanumeric identifier (stem of filename or SKU)")
+    sku: Optional[str] = Field(None, description="SKU from catalogue")
+    product_name: Optional[str] = Field(None, description="Product name from catalogue")
+    stock: Optional[int] = Field(None, description="Available stock quantity from catalogue")
+    retail_price: Optional[float] = Field(None, description="Original retail price from catalogue")
+    discounted_price: Optional[float] = Field(None, description="Discounted selling price from catalogue")
+    image_url: Optional[str] = Field(None, description="Source product image URL")
+    website_link: Optional[str] = Field(None, description="Direct product purchase / detail link")
+
     filename: str = Field(..., description="Filename including extension")
     relative_path: str = Field(..., description="Relative path within images directory")
-    file_size_bytes: int = Field(..., description="File size in bytes")
-    dimensions: Tuple[int, int] = Field(..., description="(width, height) pixel resolution")
+    file_size_bytes: int = Field(default=0, description="File size in bytes")
+    dimensions: Tuple[int, int] = Field(default=(0, 0), description="(width, height) pixel resolution")
     color_palette: List[str] = Field(default_factory=list, description="Top dominant hex colors")
     primary_color: str = Field(default="Unknown", description="Dominant catalog color")
     fabric_type: str = Field(default="Unknown", description="Textile fabric categorization")
@@ -26,7 +34,7 @@ class SimilarityBreakdown(BaseModel):
 
     embedding_similarity: float = Field(..., description="OpenCLIP vision embedding cosine similarity [0.0, 1.0]")
     color_similarity: float = Field(..., description="HSV color distribution & dominant colors similarity [0.0, 1.0]")
-    texture_similarity: float = Field(..., description="Sobel gradient texture and weave density similarity [0.0, 1.0]")
+    texture_similarity: float = Field(..., description="Gradient-based texture and weave density similarity [0.0, 1.0]")
     composition_similarity: float = Field(..., description="3x3 spatial layout and composition similarity [0.0, 1.0]")
     final_score: float = Field(..., description="Weighted composite similarity score [0.0, 1.0]")
 

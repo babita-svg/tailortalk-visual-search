@@ -17,6 +17,8 @@ import {
   ChevronRight,
   ShieldCheck,
   Zap,
+  Grid,
+  Sparkle,
 } from 'lucide-react';
 import { SAREE_CATALOG, SareeItem } from './data/catalog';
 import {
@@ -26,6 +28,8 @@ import {
   SearchMatchResult,
   RetrievalOptions,
 } from './services/retrievalEngine';
+import { SareeImage } from './components/SareeImage';
+import { CatalogBrowser } from './components/CatalogBrowser';
 
 interface ChatMessage {
   id: string;
@@ -40,8 +44,12 @@ export default function App() {
   // State
   const [selectedSample, setSelectedSample] = useState<SareeItem>(SAREE_CATALOG[0]);
   const [queryImageUrl, setQueryImageUrl] = useState<string>('');
-  const [activeQuerySrc, setActiveQuerySrc] = useState<string>('/images/banarasi_crimson_red_gold_zari_brocade.jpg');
-  const [activeQueryName, setActiveQueryName] = useState<string>('banarasi_crimson_red_gold_zari_brocade.jpg');
+  const [activeQuerySrc, setActiveQuerySrc] = useState<string>(
+    SAREE_CATALOG[0]?.imageUrl || `/images/${SAREE_CATALOG[0]?.filename}`
+  );
+  const [activeQueryName, setActiveQueryName] = useState<string>(
+    SAREE_CATALOG[0]?.name || 'Catalog Saree'
+  );
 
   // Retrieval hyperparameters
   const [options, setOptions] = useState<RetrievalOptions>({
@@ -71,7 +79,7 @@ export default function App() {
     {
       id: 'msg-1',
       role: 'assistant',
-      content: 'Ready to analyze. Upload a saree image, paste a URL, or pick from the curated catalog to begin the multi-stage visual similarity search.',
+      content: `Ready to analyze. Browse all ${SAREE_CATALOG.length} catalogue sarees, upload a query image, or paste a URL to search by visual similarity, color, and weave texture.`,
       timestamp: '04:55 AM',
     },
     {
@@ -83,12 +91,13 @@ export default function App() {
     {
       id: 'msg-3',
       role: 'assistant',
-      content: 'Searching index... Retrieved 20 candidates from FAISS vector store. Executing fine-grained reranking (Base Embedding: 40%, Color: 30%, Weave Texture: 15%, Border/Pallu: 15%). Here are the top matches.',
+      content: `Searching FAISS index across ${SAREE_CATALOG.length} catalog items... Executing fine-grained reranking (Base Embedding: 40%, Color: 30%, Weave Texture: 15%, Border/Pallu: 15%). Here are the top matches.`,
       timestamp: '04:56 AM',
     },
   ]);
 
   // Modals & Panels
+  const [activeTab, setActiveTab] = useState<'search' | 'catalog'>('search');
   const [showLogsModal, setShowLogsModal] = useState(false);
   const [showEvalModal, setShowEvalModal] = useState(false);
   const [showWeightsModal, setShowWeightsModal] = useState(false);
@@ -116,21 +125,21 @@ export default function App() {
     // Append to chat stream
     const topResult = response.results[0];
     const topPct = topResult ? topResult.scorePercentage : '98.2%';
-    const topName = topResult ? topResult.item.name : 'Banarasi Crimson Silk';
+    const topName = topResult ? topResult.item.name : 'Banarasi Silk Saree';
 
     setMessages((prev) => [
       ...prev,
       {
         id: `user-${Date.now()}`,
         role: 'user',
-        content: `Search visual similarity for ${label}`,
+        content: `Search visual similarity for: ${label}`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         imageSrc,
       },
       {
         id: `asst-${Date.now()}`,
         role: 'assistant',
-        content: `Analyzed query image through FAISS index and Sobel texture gradient filters in ${response.executionTimeMs}ms. Closest match: **${topName}** (${topPct} similarity).`,
+        content: `Retrieved & reranked matches across ${SAREE_CATALOG.length} catalogue items in ${response.executionTimeMs}ms. Closest match: **${topName}** (${topPct} similarity).`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         results: response.results,
       },
@@ -139,7 +148,7 @@ export default function App() {
 
   const handleSampleClick = (saree: SareeItem) => {
     setSelectedSample(saree);
-    executeSearch(saree, saree.filename, `/images/${saree.filename}`);
+    executeSearch(saree, saree.name, saree.imageUrl || `/images/${saree.filename}`);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -202,7 +211,7 @@ export default function App() {
       } else if (q.includes('kanjeevaram') || q.includes('kanchipuram')) {
         reply = 'Kanjeevaram sarees from Tamil Nadu are woven with 3-ply mulberry silk and feature heavy solid gold zari temple (*korvai*) borders.';
       } else if (q.includes('rerank') || q.includes('weight') || q.includes('algorithm')) {
-        reply = `Our multi-stage search engine fuses OpenCLIP vector embeddings (${(options.weightEmbedding * 100).toFixed(0)}%), HSV color histograms (${(options.weightColor * 100).toFixed(0)}%), Sobel texture gradients (${(options.weightTexture * 100).toFixed(0)}%), and border prominence (${(options.weightComposition * 100).toFixed(0)}%).`;
+        reply = `Our multi-stage search engine fuses OpenCLIP vector embeddings (${(options.weightEmbedding * 100).toFixed(0)}%), HSV color histograms (${(options.weightColor * 100).toFixed(0)}%), Gradient-based texture statistics (${(options.weightTexture * 100).toFixed(0)}%), and spatial composition prominence (${(options.weightComposition * 100).toFixed(0)}%).`;
       } else {
         reply = `I analyzed your request. You can upload any saree or select from our catalog to inspect fine-grained visual similarities, color harmonies, and weave textures.`;
       }
@@ -232,13 +241,42 @@ export default function App() {
 
       {/* HEADER */}
       <header className="h-16 border-b border-gray-200 bg-white flex items-center justify-between px-8 flex-shrink-0 z-10 shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center shadow-xs">
-            <span className="text-white font-bold text-xs tracking-wider">TT</span>
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center shadow-xs">
+              <span className="text-white font-bold text-xs tracking-wider">TT</span>
+            </div>
+            <div className="flex items-baseline">
+              <h1 className="text-xl font-semibold tracking-tight text-gray-900">TailorTalk</h1>
+              <span className="text-gray-400 font-normal text-xs ml-2">v1.2.0-stable</span>
+            </div>
           </div>
-          <div className="flex items-baseline">
-            <h1 className="text-xl font-semibold tracking-tight text-gray-900">TailorTalk</h1>
-            <span className="text-gray-400 font-normal text-xs ml-2">v1.2.0-stable</span>
+
+          {/* Primary View Switcher */}
+          <div className="flex bg-gray-100 p-1 rounded-lg border border-gray-200">
+            <button
+              onClick={() => setActiveTab('search')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === 'search'
+                  ? 'bg-white text-indigo-600 shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Search className="w-3.5 h-3.5" />
+              Visual Search
+            </button>
+
+            <button
+              onClick={() => setActiveTab('catalog')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === 'catalog'
+                  ? 'bg-white text-indigo-600 shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Grid className="w-3.5 h-3.5" />
+              Catalogue ({SAREE_CATALOG.length})
+            </button>
           </div>
         </div>
 
@@ -282,7 +320,19 @@ export default function App() {
 
       {/* MAIN CONTAINER */}
       <main className="flex-grow flex overflow-hidden">
-        {/* LEFT PANEL: QUERY INTERFACE & AGENT CHAT */}
+        {activeTab === 'catalog' ? (
+          <div className="w-full h-full">
+            <CatalogBrowser
+              onSelectSaree={(saree) => {
+                setActiveTab('search');
+                handleSampleClick(saree);
+              }}
+              onOpenDetail={(saree) => setSelectedDetailSaree(saree)}
+            />
+          </div>
+        ) : (
+          <>
+            {/* LEFT PANEL: QUERY INTERFACE & AGENT CHAT */}
         <section className="w-[380px] md:w-[400px] border-r border-gray-200 bg-white flex flex-col flex-shrink-0 h-full overflow-hidden">
           {/* Query Interface Box */}
           <div className="p-6 border-b border-gray-100 flex-shrink-0">
@@ -325,7 +375,7 @@ export default function App() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Quick Catalog Samples</span>
-                <span className="text-[10px] text-indigo-600 font-medium">All 20 available</span>
+                <span className="text-[10px] text-indigo-600 font-medium">All {SAREE_CATALOG.length} available</span>
               </div>
               <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-thin">
                 {SAREE_CATALOG.map((s) => (
@@ -333,15 +383,16 @@ export default function App() {
                     key={s.id}
                     onClick={() => handleSampleClick(s)}
                     className={`flex-shrink-0 w-11 h-11 rounded-lg border overflow-hidden transition-all cursor-pointer relative group ${
-                      activeQueryName === s.filename ? 'ring-2 ring-indigo-600 border-transparent shadow-xs scale-105' : 'border-gray-200 hover:border-indigo-300 opacity-85 hover:opacity-100'
+                      selectedSample?.id === s.id ? 'ring-2 ring-indigo-600 border-transparent shadow-xs scale-105' : 'border-gray-200 hover:border-indigo-300 opacity-85 hover:opacity-100'
                     }`}
                     title={`${s.name} (${s.primaryColor} • ${s.fabric})`}
                   >
-                    <img
-                      src={`/images/${s.filename}`}
+                    <SareeImage
+                      src={s.imageUrl || `/images/${s.filename}`}
                       alt={s.name}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
+                      dominantColors={s.dominantColors}
+                      fabric={s.fabric}
+                      primaryColor={s.primaryColor}
                     />
                   </button>
                 ))}
@@ -446,10 +497,12 @@ export default function App() {
           <div className="bg-white rounded-lg border border-gray-200 p-3.5 mb-6 shadow-2xs flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded border border-gray-200 overflow-hidden flex-shrink-0 bg-gray-100">
-                <img
+                <SareeImage
                   src={activeQuerySrc}
                   alt="Query"
-                  referrerPolicy="no-referrer"
+                  dominantColors={selectedSample?.dominantColors}
+                  fabric={selectedSample?.fabric}
+                  primaryColor={selectedSample?.primaryColor}
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -517,10 +570,12 @@ export default function App() {
                     <div className={`absolute top-2 right-2 ${scoreBg} text-[10px] font-bold px-2 py-0.5 rounded shadow-xs z-10`}>
                       {match.score.toFixed(4)} ({match.scorePercentage})
                     </div>
-                    <img
-                      src={`/images/${match.item.filename}`}
+                    <SareeImage
+                      src={match.item.imageUrl || `/images/${match.item.filename}`}
                       alt={match.item.name}
-                      referrerPolicy="no-referrer"
+                      dominantColors={match.item.dominantColors}
+                      fabric={match.item.fabric}
+                      primaryColor={match.item.primaryColor}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                   </div>
@@ -529,7 +584,7 @@ export default function App() {
                   <div className="p-4 flex flex-col justify-between flex-grow">
                     <div>
                       <div className="flex justify-between items-start mb-1.5">
-                        <span className="text-xs font-mono text-gray-400 uppercase">{match.item.id.slice(0, 16)}</span>
+                        <span className="text-xs font-mono text-gray-500 font-bold uppercase">{match.item.sku || match.item.id.slice(0, 12)}</span>
                         <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-600 font-medium">
                           {match.item.fabric}
                         </span>
@@ -539,9 +594,45 @@ export default function App() {
                         {match.item.name}
                       </h3>
 
+                      {/* Pricing & Stock */}
+                      <div className="flex items-center justify-between my-2 text-xs">
+                        <div className="flex items-baseline gap-1.5">
+                          {match.item.discountedPrice ? (
+                            <>
+                              <span className="font-bold text-gray-900 text-sm">₹{match.item.discountedPrice.toLocaleString()}</span>
+                              {match.item.retailPrice && match.item.retailPrice > match.item.discountedPrice && (
+                                <span className="text-gray-400 line-through text-[11px]">₹{match.item.retailPrice.toLocaleString()}</span>
+                              )}
+                            </>
+                          ) : match.item.retailPrice ? (
+                            <span className="font-bold text-gray-900 text-sm">₹{match.item.retailPrice.toLocaleString()}</span>
+                          ) : null}
+                        </div>
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                          match.item.stock && match.item.stock > 0
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {match.item.stock && match.item.stock > 0 ? `${match.item.stock} in stock` : 'Out of Stock'}
+                        </span>
+                      </div>
+
                       <p className="text-xs text-gray-600 leading-tight mb-3">
                         {match.visualExplanation}
                       </p>
+
+                      {match.item.websiteLink && (
+                        <a
+                          href={match.item.websiteLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 mb-2"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          View Product on Store
+                        </a>
+                      )}
                     </div>
 
                     {/* Fine-grained Breakdown Progress Bars */}
@@ -576,6 +667,8 @@ export default function App() {
             })}
           </div>
         </section>
+        </>
+        )}
       </main>
 
       {/* FOOTER */}
@@ -583,7 +676,7 @@ export default function App() {
         <div className="flex gap-6">
           <span>VAL_REPRODUCIBILITY: PASS</span>
           <span>INDEX_VERSION: 2026_CLIP_FAISS_V1</span>
-          <span>TOTAL_CATALOG_ITEMS: 20 CURATED TEXTILES</span>
+          <span>TOTAL_CATALOG_ITEMS: {SAREE_CATALOG.length} CATALOG PRODUCTS</span>
         </div>
         <div className="flex gap-4 items-center">
           <span className="text-indigo-600 font-bold flex items-center gap-1">
@@ -612,7 +705,7 @@ export default function App() {
             <div className="p-6 overflow-y-auto bg-slate-950 font-mono text-xs text-emerald-400 space-y-1.5">
               <p className="text-gray-400">[2026-08-14 04:55:35] IngestionPipeline: Initializing FAISS IndexFlatIP (dim=512)</p>
               <p className="text-gray-400">[2026-08-14 04:55:36] OpenCLIP: Loaded ViT-B-32 with pretrained weights</p>
-              <p className="text-gray-400">[2026-08-14 04:55:38] VectorStore: Index populated with 20 curated Indian handloom textiles</p>
+              <p className="text-gray-400">[2026-08-14 04:55:38] VectorStore: Index populated with {SAREE_CATALOG.length} catalogue products</p>
               <p className="text-indigo-300">------------------------------------------------------------</p>
               {searchResults.logs.map((log, i) => (
                 <p key={i} className="text-emerald-300">{log}</p>
@@ -757,7 +850,7 @@ export default function App() {
 
               <div>
                 <div className="flex justify-between text-xs font-medium text-gray-700 mb-1">
-                  <span>Weave & Texture Gradient (Sobel)</span>
+                  <span>Weave & Texture (Gradient-based Texture Statistics)</span>
                   <span className="font-mono font-bold text-amber-600">{(options.weightTexture * 100).toFixed(0)}%</span>
                 </div>
                 <input
@@ -808,7 +901,12 @@ export default function App() {
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-xl overflow-hidden flex flex-col">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-              <h3 className="text-sm font-bold text-gray-900">{selectedDetailSaree.name}</h3>
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">{selectedDetailSaree.name}</h3>
+                {selectedDetailSaree.sku && (
+                  <span className="text-[11px] font-mono text-gray-500">SKU: {selectedDetailSaree.sku}</span>
+                )}
+              </div>
               <button
                 onClick={() => setSelectedDetailSaree(null)}
                 className="text-gray-400 hover:text-gray-600 cursor-pointer"
@@ -817,13 +915,46 @@ export default function App() {
               </button>
             </div>
             <div className="p-6 flex flex-col gap-4 overflow-y-auto max-h-[75vh]">
-              <div className="h-56 bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
-                <img
-                  src={`/images/${selectedDetailSaree.filename}`}
+              <div className="h-64 bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+                <SareeImage
+                  src={selectedDetailSaree.imageUrl || `/images/${selectedDetailSaree.filename}`}
                   alt={selectedDetailSaree.name}
-                  referrerPolicy="no-referrer"
+                  dominantColors={selectedDetailSaree.dominantColors}
+                  fabric={selectedDetailSaree.fabric}
+                  primaryColor={selectedDetailSaree.primaryColor}
                   className="w-full h-full object-cover"
                 />
+              </div>
+
+              {/* Price & Stock Badge */}
+              <div className="flex items-center justify-between p-3 bg-indigo-50/60 border border-indigo-100 rounded-lg">
+                <div>
+                  <span className="text-[10px] text-gray-500 uppercase font-bold block">Catalogue Price</span>
+                  <div className="flex items-baseline gap-2 mt-0.5">
+                    {selectedDetailSaree.discountedPrice ? (
+                      <>
+                        <span className="text-lg font-bold text-gray-900">₹{selectedDetailSaree.discountedPrice.toLocaleString()}</span>
+                        {selectedDetailSaree.retailPrice && selectedDetailSaree.retailPrice > selectedDetailSaree.discountedPrice && (
+                          <span className="text-xs text-gray-400 line-through">₹{selectedDetailSaree.retailPrice.toLocaleString()}</span>
+                        )}
+                      </>
+                    ) : selectedDetailSaree.retailPrice ? (
+                      <span className="text-lg font-bold text-gray-900">₹{selectedDetailSaree.retailPrice.toLocaleString()}</span>
+                    ) : (
+                      <span className="text-sm text-gray-600 font-medium">Price on request</span>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-gray-500 uppercase font-bold block">Inventory</span>
+                  <span className={`inline-block mt-0.5 text-xs font-semibold px-2 py-0.5 rounded ${
+                    selectedDetailSaree.stock && selectedDetailSaree.stock > 0
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-gray-200 text-gray-700'
+                  }`}>
+                    {selectedDetailSaree.stock && selectedDetailSaree.stock > 0 ? `${selectedDetailSaree.stock} available` : 'Out of Stock'}
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3 text-xs">
@@ -844,6 +975,18 @@ export default function App() {
                   <span className="font-semibold text-gray-800">{selectedDetailSaree.border}</span>
                 </div>
               </div>
+
+              {selectedDetailSaree.websiteLink && (
+                <a
+                  href={selectedDetailSaree.websiteLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-center gap-1.5 w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  View & Order Directly on Byrappa Silks
+                </a>
+              )}
 
               <div className="p-3 bg-gray-50 border border-gray-200 rounded text-xs">
                 <span className="text-gray-400 block text-[10px] uppercase font-bold mb-1">Occasion & Styling</span>

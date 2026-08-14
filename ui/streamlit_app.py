@@ -223,7 +223,7 @@ def render_results_gallery(results: List[Any]):
     for idx, item in enumerate(results):
         col = cols[idx % 3]
         with col:
-            # Handle dictionary or SearchResultItem object
+            # Extract attributes from item
             if isinstance(item, dict):
                 rank = item.get("rank", idx + 1)
                 score = item.get("score", 0.0)
@@ -232,6 +232,12 @@ def render_results_gallery(results: List[Any]):
                 attrs = item.get("attributes", {}) or {}
                 breakdown = item.get("similarity_breakdown", {}) or {}
                 explanation = item.get("visual_explanation", "")
+                sku = attrs.get("sku") or item.get("sku") or "Unknown"
+                prod_name = attrs.get("product_name") or item.get("product_name") or None
+                stock = attrs.get("stock") if attrs.get("stock") is not None else item.get("stock")
+                retail_price = attrs.get("retail_price") or item.get("retail_price")
+                disc_price = attrs.get("discounted_price") or item.get("discounted_price")
+                website_link = attrs.get("website_link") or item.get("website_link")
                 primary_color = attrs.get("primary_color", "Unknown")
                 fabric_type = attrs.get("fabric", "Unknown")
                 weave_style = attrs.get("weave", "Unknown")
@@ -246,6 +252,12 @@ def render_results_gallery(results: List[Any]):
                 score_pct = item.score_percentage
                 rel_path = item.relative_path
                 meta = item.metadata
+                sku = meta.sku if meta and meta.sku else "Unknown"
+                prod_name = meta.product_name if meta and meta.product_name else None
+                stock = meta.stock if meta and meta.stock is not None else None
+                retail_price = meta.retail_price if meta else None
+                disc_price = meta.discounted_price if meta else None
+                website_link = meta.website_link if meta else None
                 primary_color = meta.primary_color if meta and meta.primary_color else "Unknown"
                 fabric_type = meta.fabric_type if meta and meta.fabric_type else "Unknown"
                 weave_style = meta.weave_style if meta and meta.weave_style else "Unknown"
@@ -274,13 +286,29 @@ def render_results_gallery(results: List[Any]):
                 unsafe_allow_html=True,
             )
 
-            # Metadata attributes
-            title_str = f"**{primary_color} {fabric_type} Saree**" if primary_color != "Unknown" or fabric_type != "Unknown" else "**Catalog Saree**"
-            st.markdown(
-                f"{title_str}\n\n"
-                f"• **Weave**: {weave_style}\n"
-                f"• **Border**: {border_type}"
-            )
+            # Product Name & SKU
+            display_title = prod_name if prod_name else (f"{primary_color} {fabric_type} Saree" if (primary_color != "Unknown" or fabric_type != "Unknown") else "Catalog Saree")
+            st.markdown(f"**{display_title}**")
+            st.caption(f"SKU: `{sku}`")
+
+            # Price & Stock
+            price_parts = []
+            if disc_price is not None:
+                price_parts.append(f"<strong style='font-size:15px; color:#0f172a;'>₹{disc_price:,.0f}</strong>")
+            if retail_price is not None and (disc_price is None or retail_price != disc_price):
+                price_parts.append(f"<span style='text-decoration:line-through; color:#64748b; font-size:13px;'>₹{retail_price:,.0f}</span>")
+            
+            stock_str = f"{stock} in stock" if (stock is not None and stock >= 0) else ("Out of stock" if stock == 0 else "Unknown")
+            stock_badge = f"<span style='font-size:12px; color:{'#16a34a' if stock and stock > 0 else '#64748b'};'>• {stock_str}</span>"
+
+            if price_parts:
+                st.markdown(f"<div>{' '.join(price_parts)} {stock_badge}</div>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<div><span style='color:#64748b; font-size:13px;'>Price: Unknown</span> {stock_badge}</div>", unsafe_allow_html=True)
+
+            # Direct Website Link button if available
+            if website_link and is_valid_url(website_link):
+                st.markdown(f"<a href='{website_link}' target='_blank' style='display:inline-block; margin-top:6px; margin-bottom:6px; padding:4px 12px; background:#0284c7; color:#ffffff; text-decoration:none; border-radius:4px; font-size:12px; font-weight:600;'>🔗 View Product</a>", unsafe_allow_html=True)
 
             # Score breakdown expandable
             with st.expander("🔍 Similarity Breakdown", expanded=False):

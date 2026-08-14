@@ -33,20 +33,56 @@ def load_ground_truth(manifest_path: Optional[Path] = None) -> Dict[str, Any]:
         return json.load(f)
 
 
-def calculate_ndcg(retrieved_ids: List[str], relevant_ids: List[str], k: int = 5) -> float:
-    """Compute Normalized Discounted Cumulative Gain at rank K (nDCG@K)."""
-    rel_set = set(relevant_ids)
+def calculate_dcg(gains: List[float]) -> float:
+    """Compute Discounted Cumulative Gain for a list of relevance scores."""
     dcg = 0.0
-    for idx, item_id in enumerate(retrieved_ids[:k], start=1):
-        if item_id in rel_set:
-            dcg += 1.0 / math.log2(idx + 1)
+    for idx, gain in enumerate(gains, start=1):
+        if gain > 0:
+            dcg += float(gain) / math.log2(idx + 1)
+    return float(dcg)
 
-    # Ideal DCG calculation
-    ideal_hits = min(len(relevant_ids), k)
+
+def calculate_ndcg(retrieved_items: List[Any], relevant_items: Any, k: int = 5) -> float:
+    """Compute Normalized Discounted Cumulative Gain at rank K (nDCG@K)."""
+    if not retrieved_items or not relevant_items:
+        return 0.0
+
+    # If numeric gains list is passed
+    if isinstance(retrieved_items, list) and len(retrieved_items) > 0 and isinstance(retrieved_items[0], (int, float)):
+        dcg = calculate_dcg(retrieved_items[:k])
+        # Sort ideal gains descending
+        ideal_gains = sorted(relevant_items if isinstance(relevant_items, list) else retrieved_items, reverse=True)[:k]
+        idcg = calculate_dcg(ideal_gains)
+        return float(dcg / idcg) if idcg > 0 else 0.0
+
+    # If ID lists are passed
+    rel_set = set(relevant_items)
+    gains = [1.0 if item in rel_set else 0.0 for item in retrieved_items[:k]]
+    dcg = calculate_dcg(gains)
+    ideal_hits = min(len(relevant_items), k)
     if ideal_hits == 0:
         return 0.0
     idcg = sum(1.0 / math.log2(i + 1) for i in range(1, ideal_hits + 1))
     return float(dcg / idcg) if idcg > 0 else 0.0
+
+
+def calculate_mrr(retrieved_ids: List[str], relevant_ids: Any) -> float:
+    """Compute Reciprocal Rank of first relevant item."""
+    rel_set = set(relevant_ids)
+    for idx, item in enumerate(retrieved_ids, start=1):
+        if item in rel_set:
+            return 1.0 / float(idx)
+    return 0.0
+
+
+def calculate_recall_at_k(retrieved_ids: List[str], relevant_ids: Any, k: int = 5) -> float:
+    """Compute Recall@K (fraction of relevant items retrieved in top K)."""
+    rel_set = set(relevant_ids)
+    if not rel_set:
+        return 0.0
+    retrieved_k = set(retrieved_ids[:k])
+    hits = len(retrieved_k.intersection(rel_set))
+    return float(hits / len(rel_set))
 
 
 def evaluate_retrieval_system(top_k: int = 5) -> Dict[str, Any]:

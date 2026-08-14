@@ -72,9 +72,10 @@ FAISS IndexFlatIP         │                     │
 
 ## 7. Dataset / Catalogue
 
-- **Curated Saree Image Catalogue**: High-resolution catalog spanning key Indian textile traditions including Banarasi, Kanjeevaram, Chanderi, Bandhani, Kalamkari, Patola, Paithani, Tussar, and Organza.
-- **Metadata Attributes**: Primary color, fabric type, weave style, border type, zari type, and dimensions.
-- **Integrity**: Filename attributes are truthful and distinct from runtime visual feature extractions. When specific textile attributes are unknown, they are displayed as `Unknown` without synthetic fabrication.
+- **Authoritative Catalogue Source**: `data/byrappa_tejas_31july.csv` contains the 83 handloom saree catalogue records supplied by the assignment package.
+- **Fields Preserved**: `Name`, `SKU`, `Stock`, `Retail Price`, `Discounted Price`, `image_url`, and `Website Link`.
+- **Integrity**: Attribute values strictly match the CSV source. Missing or unspecified attributes are handled transparently as `Unknown` without synthetic fabrication.
+- **Catalogue Verification**: Run `python3 scripts/verify_catalog.py` to validate row counts, SKU uniqueness, URL formatting, and pricing integrity.
 
 ## 8. Evaluation
 

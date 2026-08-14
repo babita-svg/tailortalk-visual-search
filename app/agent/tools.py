@@ -76,6 +76,12 @@ class VisualSareeSimilaritySearchTool:
                         "composition_similarity": item.breakdown.composition_similarity,
                     },
                     "attributes": {
+                        "sku": item.metadata.sku if item.metadata and item.metadata.sku else "Unknown",
+                        "product_name": item.metadata.product_name if item.metadata else None,
+                        "stock": item.metadata.stock if item.metadata else None,
+                        "retail_price": item.metadata.retail_price if item.metadata else None,
+                        "discounted_price": item.metadata.discounted_price if item.metadata else None,
+                        "website_link": item.metadata.website_link if item.metadata else None,
                         "primary_color": item.metadata.primary_color if item.metadata else "Unknown",
                         "fabric": item.metadata.fabric_type if item.metadata else "Unknown",
                         "weave": item.metadata.weave_style if item.metadata else "Unknown",

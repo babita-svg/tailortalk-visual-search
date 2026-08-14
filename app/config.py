@@ -63,7 +63,7 @@ class RetrievalConfig:
     weight_embedding: float = float(os.getenv("WEIGHT_EMBEDDING", "0.50"))
     # 2. Color harmony & dominant hue distribution (HSV/Lab histogram intersection)
     weight_color: float = float(os.getenv("WEIGHT_COLOR", "0.25"))
-    # 3. Spatial texture and high-frequency weave pattern density (Sobel/Laplacian gradient energy)
+    # 3. Spatial texture and high-frequency weave pattern density (Gradient-based texture statistics)
     weight_texture: float = float(os.getenv("WEIGHT_TEXTURE", "0.15"))
     # 4. Structural border & pallu layout correlation (Upper/Lower/Side zone distributions)
     weight_composition: float = float(os.getenv("WEIGHT_COMPOSITION", "0.10"))
