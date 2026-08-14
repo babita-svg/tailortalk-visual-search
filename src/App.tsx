@@ -97,7 +97,7 @@ export default function App() {
   ]);
 
   // Modals & Panels
-  const [activeTab, setActiveTab] = useState<'search' | 'catalog'>('search');
+  const [activeTab, setActiveTab] = useState<'search' | 'catalog'>('catalog');
   const [showLogsModal, setShowLogsModal] = useState(false);
   const [showEvalModal, setShowEvalModal] = useState(false);
   const [showWeightsModal, setShowWeightsModal] = useState(false);

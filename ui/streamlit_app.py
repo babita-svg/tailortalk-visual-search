@@ -525,7 +525,10 @@ def main():
     top_k, candidate_k = render_sidebar()
 
     # Primary Application Tabs
-    tab_search, tab_catalog = st.tabs(["🔍 Visual Similarity Search & Stylist", "📖 Catalogue Browser (83 Sarees)"])
+    tab_catalog, tab_search = st.tabs(["📖 Saree Catalogue (83 Products)", "🔍 Visual Similarity Search & Stylist"])
+
+    with tab_catalog:
+        render_catalog_browser(top_k, candidate_k)
 
     with tab_search:
         # Input Area Tabs: File Upload vs URL
@@ -607,9 +610,6 @@ def main():
                         "content": reply,
                         "results": results_dict,
                     })
-
-    with tab_catalog:
-        render_catalog_browser(top_k, candidate_k)
 
 
 if __name__ == "__main__":
