@@ -101,8 +101,8 @@ def render_sidebar():
             st.caption("Adjust multi-signal reranking contributions (normalized automatically):")
             w_emb = st.slider("Base Embedding (CLIP)", 0.0, 1.0, config.retrieval.weight_embedding, 0.05)
             w_col = st.slider("Color Distribution (HSV/Lab)", 0.0, 1.0, config.retrieval.weight_color, 0.05)
-            w_tex = st.slider("Weave / Texture Gradient", 0.0, 1.0, config.retrieval.weight_texture, 0.05)
-            w_comp = st.slider("Border & Pallu Layout", 0.0, 1.0, config.retrieval.weight_composition, 0.05)
+            w_tex = st.slider("Gradient-based Texture Statistics", 0.0, 1.0, config.retrieval.weight_texture, 0.05)
+            w_comp = st.slider("Spatial Composition Similarity", 0.0, 1.0, config.retrieval.weight_composition, 0.05)
             
             # Apply weights dynamically
             st.session_state.search_engine.reranker.w_emb = w_emb
@@ -206,7 +206,7 @@ def render_query_preview(query_img: Optional[Any]):
                 for c in palette
             ])
             st.markdown(chips_html, unsafe_allow_html=True)
-            st.caption("Extracted via HSV multi-bin quantization and Sobel spatial gradient analysis.")
+            st.caption("Extracted via HSV multi-bin quantization and adjacent-pixel gradient statistics.")
     except Exception as e:
         st.warning(f"Could not render query image preview: {str(e)}")
 
@@ -232,10 +232,10 @@ def render_results_gallery(results: List[Any]):
                 attrs = item.get("attributes", {}) or {}
                 breakdown = item.get("similarity_breakdown", {}) or {}
                 explanation = item.get("visual_explanation", "")
-                primary_color = attrs.get("primary_color", "Saree")
-                fabric_type = attrs.get("fabric", "Silk")
-                weave_style = attrs.get("weave", "Traditional")
-                border_type = attrs.get("border", "Zari")
+                primary_color = attrs.get("primary_color", "Unknown")
+                fabric_type = attrs.get("fabric", "Unknown")
+                weave_style = attrs.get("weave", "Unknown")
+                border_type = attrs.get("border", "Unknown")
                 emb_sim = breakdown.get("embedding_similarity", 0.0)
                 col_sim = breakdown.get("color_similarity", 0.0)
                 tex_sim = breakdown.get("texture_similarity", 0.0)
@@ -246,10 +246,10 @@ def render_results_gallery(results: List[Any]):
                 score_pct = item.score_percentage
                 rel_path = item.relative_path
                 meta = item.metadata
-                primary_color = meta.primary_color if meta else "Saree"
-                fabric_type = meta.fabric_type if meta else "Silk"
-                weave_style = meta.weave_style if meta else "Traditional"
-                border_type = meta.border_type if meta else "Zari"
+                primary_color = meta.primary_color if meta and meta.primary_color else "Unknown"
+                fabric_type = meta.fabric_type if meta and meta.fabric_type else "Unknown"
+                weave_style = meta.weave_style if meta and meta.weave_style else "Unknown"
+                border_type = meta.border_type if meta and meta.border_type else "Unknown"
                 emb_sim = item.breakdown.embedding_similarity
                 col_sim = item.breakdown.color_similarity
                 tex_sim = item.breakdown.texture_similarity
@@ -275,17 +275,18 @@ def render_results_gallery(results: List[Any]):
             )
 
             # Metadata attributes
+            title_str = f"**{primary_color} {fabric_type} Saree**" if primary_color != "Unknown" or fabric_type != "Unknown" else "**Catalog Saree**"
             st.markdown(
-                f"**{primary_color or 'Saree'} {fabric_type or 'Silk'}**\n\n"
-                f"• **Weave**: {weave_style or 'Traditional'}\n"
-                f"• **Border**: {border_type or 'Zari'}"
+                f"{title_str}\n\n"
+                f"• **Weave**: {weave_style}\n"
+                f"• **Border**: {border_type}"
             )
 
             # Score breakdown expandable
             with st.expander("🔍 Similarity Breakdown", expanded=False):
                 st.progress(float(emb_sim), text=f"Base Vision Embedding: {emb_sim*100:.1f}%")
                 st.progress(float(col_sim), text=f"Color Harmony: {col_sim*100:.1f}%")
-                st.progress(float(tex_sim), text=f"Weave / Texture: {tex_sim*100:.1f}%")
+                st.progress(float(tex_sim), text=f"Texture Statistics: {tex_sim*100:.1f}%")
                 st.progress(float(comp_sim), text=f"Spatial Composition: {comp_sim*100:.1f}%")
 
             if explanation:
@@ -296,8 +297,8 @@ def render_results_gallery(results: List[Any]):
 def main():
     st.title("🥻 TailorTalk — Visual Saree Similarity Search Agent")
     st.markdown(
-        "A fine-grained computer vision retrieval system that analyzes **dominant colors, weave texture, "
-        "border motifs, and pallu craftsmanship** using OpenCLIP embeddings, FAISS vector indexing, and multi-signal reranking."
+        "A fine-grained computer vision retrieval system that analyzes **dominant color distributions, "
+        "gradient-based texture statistics, and 3x3 spatial composition** using OpenCLIP embeddings, FAISS vector indexing, and multi-signal reranking."
     )
 
     top_k, candidate_k = render_sidebar()

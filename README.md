@@ -7,7 +7,7 @@ TailorTalk is a fine-grained visual search and conversational styling system tai
 ## 2. Key Capabilities
 
 - **Visual Similarity Search**: Dual-stage retrieval matching query images against catalog inventory using normalized OpenCLIP visual vectors and fine-grained visual signals.
-- **Fine-Grained Visual Reranking**: Composite scoring combining semantic embeddings, HSV color histograms, high-frequency Sobel texture gradients, and 3x3 spatial grid layouts.
+- **Fine-Grained Visual Reranking**: Composite scoring combining semantic embeddings, HSV color histograms, gradient-based texture statistics, and 3x3 spatial composition similarity.
 - **Conversational Styling Agent**: LLM agent with structured tool-calling (`VisualSareeSimilaritySearchTool`) that distinguishes styling advice queries from visual similarity searches.
 - **Defensive Ingestion & SSRF Protection**: Comprehensive input validation blocking private RFC 1918 IPs, loopbacks, link-local metadata endpoints, path traversals, and oversized payloads.
 - **Quantitative Retrieval Benchmark**: Automated evaluation framework computing Recall@1, Recall@5, Recall@10, MRR, and nDCG@5 with self-retrieval exclusion.
@@ -27,7 +27,7 @@ Visual Similarity Search Engine           Conversational Agent
   ├───────────────────────┐                     │ Function Calling
   ▼                       ▼                     │
 OpenCLIP ViT-B/32   Visual Feature Engine       │
-(512-dim Embedding) (HSV, Sobel, Grid Layout)   │
+(512-dim Embedding) (HSV, Texture, 3x3 Grid)    │
   │                       │                     │
   ▼                       │                     │
 FAISS IndexFlatIP         │                     │
@@ -42,7 +42,7 @@ FAISS IndexFlatIP         │                     │
       Ranked Results & Similarity ──────────────┘
               │
               ▼
-   Interactive Web UI / Streamlit
+    Streamlit Web Application (ui/streamlit_app.py)
 ```
 
 ## 4. Retrieval Pipeline
@@ -60,7 +60,7 @@ FAISS IndexFlatIP         │                     │
 
 - **Embedding Similarity ($S_{\text{emb}}$)**: Cosine similarity between 512-dimensional OpenCLIP visual embeddings.
 - **Color Similarity ($S_{\text{col}}$)**: 3D HSV histogram correlation and Bhattacharyya distance across hue, saturation, and value distributions.
-- **Texture Similarity ($S_{\text{tex}}$)**: High-frequency Sobel gradient magnitude histograms capturing weave tightness, zari density, and jacquard patterns.
+- **Texture Similarity ($S_{\text{tex}}$)**: Gradient-based texture statistics across horizontal and vertical frequencies capturing weave tightness, zari density, and jacquard patterns.
 - **Spatial Composition ($S_{\text{comp}}$)**: $3 \times 3$ spatial grid feature matching comparing corresponding regions (pallu, body, pleats, and border placement).
 
 ## 6. Agent / Tool Architecture
@@ -95,7 +95,7 @@ The evaluation suite (`scripts/evaluate_retrieval.py`) benchmarks retrieval prec
 Test suite organized under `tests/`:
 - `test_embeddings.py`: OpenCLIP encoding, unit L2 normalization, dimension guarantees.
 - `test_vector_store.py`: FAISS vector store indexing, deduplication, search, and persistence.
-- `test_reranker.py`: Color histograms, Sobel texture gradients, spatial grid composition, and composite scoring.
+- `test_reranker.py`: Color histograms, gradient-based texture statistics, 3x3 spatial grid composition, and composite scoring.
 - `test_search.py`: End-to-end `SareeSearchEngine` retrieval flows.
 - `test_image_utils.py` & `test_security.py`: Image loading, SSRF prevention, IP validation, dimension bounds.
 - `test_agent.py` & `test_agent_tools.py`: Tool calling, conversational routing, prompt formatting.
@@ -107,9 +107,6 @@ Test suite organized under `tests/`:
 ```bash
 # Install Python dependencies
 pip install -r requirements.txt
-
-# Install Node dependencies for UI
-npm install
 ```
 
 ## 12. Configuration
@@ -121,7 +118,7 @@ cp .env.example .env
 ```
 
 Available environment variables:
-- `GEMINI_API_KEY`: API key for conversational agent capabilities.
+- `GEMINI_API_KEY`: Optional API key for conversational agent capabilities (graceful fallback included).
 - `DEVICE`: Processing device (`cpu` or `cuda`, default: `cpu`).
 - `DATASET_DIR`: Path to saree image dataset directory (default: `data/images`).
 - `INDEX_DIR`: Path to vector store index directory (default: `data/index`).
@@ -136,17 +133,10 @@ python scripts/build_index.py
 
 ## 14. Run Application
 
-To launch the full-stack web application:
+To launch the Streamlit web application on port 3000:
 
 ```bash
-npm run build
-node dist/server.cjs
-```
-
-To launch the Streamlit prototype:
-
-```bash
-streamlit run app.py
+streamlit run ui/streamlit_app.py --server.port=3000 --server.address=0.0.0.0
 ```
 
 ## 15. Run Tests
@@ -201,8 +191,6 @@ python scripts/evaluate_retrieval.py
 ├── tests/                     # Unit and integration test suite
 ├── ui/
 │   └── streamlit_app.py       # Streamlit web application
-├── src/                       # React frontend application
-├── server.ts                  # Express server & API routes
 └── requirements.txt           # Python dependencies
 ```
 

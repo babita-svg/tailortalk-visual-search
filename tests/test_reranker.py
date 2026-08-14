@@ -70,3 +70,80 @@ def test_reranking_score_bounds_and_similarity(sample_query_image, sample_candid
     assert 0.0 <= col_sim_close <= 1.0
     assert 0.0 <= col_sim_diff <= 1.0
     assert col_sim_close > col_sim_diff
+
+
+def test_visual_features_serialization_roundtrip(sample_query_image):
+    """Test VisualFeatures to_dict and from_dict produce identical arrays."""
+    reranker = FineGrainedSareeReranker()
+    features = reranker.extract_visual_features(sample_query_image)
+    
+    serialized = features.to_dict()
+    assert isinstance(serialized, dict)
+    assert "color_hist" in serialized
+    assert "dominant_colors" in serialized
+    assert "texture_profile" in serialized
+    assert "spatial_layout" in serialized
+
+    restored = VisualFeatures.from_dict(serialized)
+    np.testing.assert_allclose(features.color_hist, restored.color_hist, rtol=1e-5)
+    np.testing.assert_allclose(features.dominant_colors, restored.dominant_colors, rtol=1e-5)
+    np.testing.assert_allclose(features.texture_profile, restored.texture_profile, rtol=1e-5)
+    np.testing.assert_allclose(features.spatial_layout, restored.spatial_layout, rtol=1e-5)
+
+
+def test_rerank_candidates_with_cached_features(sample_query_image, sample_candidate_image):
+    """Test reranking executes efficiently when visual_features dictionary is cached in candidate metadata."""
+    reranker = FineGrainedSareeReranker()
+    feat_cand = reranker.extract_visual_features(sample_candidate_image)
+
+    candidates = [
+        ("cand_01", 0.90, {
+            "image_id": "cand_01",
+            "filename": "cand_01.jpg",
+            "relative_path": "cand_01.jpg",
+            "file_size_bytes": 1000,
+            "dimensions": [300, 300],
+            "primary_color": "Red",
+            "fabric_type": "Silk",
+            "weave_style": "Zari",
+            "border_type": "Gold",
+            "pallu_style": "Brocade",
+            "visual_features": feat_cand.to_dict(),
+        })
+    ]
+
+    results = reranker.rerank_candidates(sample_query_image, candidates, top_k=1)
+    assert len(results) == 1
+    assert results[0].image_id == "cand_01"
+    assert results[0].breakdown.color_similarity > 0.5
+    assert results[0].breakdown.texture_similarity > 0.5
+    assert results[0].breakdown.final_score > 0.5
+
+
+def test_rerank_candidates_honest_fallback_when_features_unavailable(sample_query_image):
+    """Test truthful fallback when candidate visual features are missing and cannot be loaded."""
+    reranker = FineGrainedSareeReranker()
+    
+    candidates = [
+        ("missing_img_01", 0.85, {
+            "image_id": "missing_img_01",
+            "filename": "missing_img_01.jpg",
+            "relative_path": "non_existent_path.jpg",
+            "file_size_bytes": 1000,
+            "dimensions": [300, 300],
+            "primary_color": "Unknown",
+            "fabric_type": "Unknown",
+            "weave_style": "Unknown",
+            "border_type": "Unknown",
+            "pallu_style": "Unknown",
+        })
+    ]
+
+    results = reranker.rerank_candidates(sample_query_image, candidates, top_k=1)
+    assert len(results) == 1
+    # Check that color, texture, and composition are 0.0, NOT fabricated from 0.85
+    assert results[0].breakdown.color_similarity == 0.0
+    assert results[0].breakdown.texture_similarity == 0.0
+    assert results[0].breakdown.composition_similarity == 0.0
+    assert results[0].breakdown.embedding_similarity == 0.85
+    assert "fine-grained visual features were unavailable" in results[0].visual_explanation

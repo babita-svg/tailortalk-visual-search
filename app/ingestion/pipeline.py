@@ -14,6 +14,7 @@ from app.exceptions import IngestionError
 from app.image_utils.loader import ImageLoader
 from app.image_utils.validation import ImageValidator
 from app.ingestion.metadata import extract_metadata_for_image
+from app.retrieval.reranker import FineGrainedSareeReranker
 from app.retrieval.vector_store import FAISSVectorStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -33,6 +34,7 @@ class IngestionPipeline:
         self.index_dir = index_dir or config.storage.index_dir
         self.batch_size = batch_size
         self.encoder = get_image_encoder()
+        self.reranker = FineGrainedSareeReranker()
         self.vector_store = FAISSVectorStore(
             dimension=self.encoder.embedding_dim,
             index_file=self.index_dir / "saree_faiss.index",
@@ -117,11 +119,18 @@ class IngestionPipeline:
             # Generate batch embeddings
             vectors = self.encoder.encode_batch(batch_images)
 
-            for path, vec in zip(batch_valid_paths, vectors):
+            for img, path, vec in zip(batch_images, batch_valid_paths, vectors):
                 meta = extract_metadata_for_image(path, self.images_dir)
+                meta_dict = meta.model_dump()
+                try:
+                    vf = self.reranker.extract_visual_features(img)
+                    meta_dict["visual_features"] = vf.to_dict()
+                except Exception as e:
+                    logger.debug(f"Could not precalculate visual features for {path.name}: {e}")
+
                 all_vectors.append(vec)
                 all_ids.append(meta.image_id)
-                all_metadata.append(meta.model_dump())
+                all_metadata.append(meta_dict)
 
             logger.info(f"Processed batch {b_idx + 1}/{total_batches} ({len(all_vectors)} images prepared)")
 

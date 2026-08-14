@@ -247,6 +247,21 @@ class FAISSVectorStore(BaseVectorStore):
                     f"Index dimension mismatch: FAISS file has dimension {self._index.d}, but current model expects {self.dimension}."
                 )
 
+            # Strict model and pretrained weights compatibility validation
+            saved_model = payload.get("model_name")
+            if saved_model and saved_model != config.model.model_name:
+                raise VectorStoreIndexError(
+                    f"Model architecture mismatch: Index was built with model '{saved_model}', "
+                    f"but runtime is configured for '{config.model.model_name}'. Please rebuild the index via build_index.py."
+                )
+
+            saved_pretrained = payload.get("pretrained")
+            if saved_pretrained and saved_pretrained != config.model.pretrained:
+                raise VectorStoreIndexError(
+                    f"Pretrained weights mismatch: Index was built with '{saved_pretrained}', "
+                    f"but runtime is configured for '{config.model.pretrained}'. Please rebuild the index via build_index.py."
+                )
+
             self.dimension = loaded_dim
             self._id_to_index = payload.get("id_to_index", {})
             self._index_to_id = {int(k): v for k, v in payload.get("index_to_id", {}).items()}

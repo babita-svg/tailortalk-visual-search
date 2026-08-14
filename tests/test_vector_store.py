@@ -128,3 +128,24 @@ def test_duplicate_id_prevention(temp_index_files, mock_sarees_and_vectors):
     # Re-adding existing ID
     with pytest.raises(VectorStoreIndexError, match="already exists in the vector store"):
         store.add(vectors[0:1], [ids[0]], [metadata[0]])
+
+
+def test_index_model_compatibility_validation(temp_index_files, mock_sarees_and_vectors):
+    """Test that loading an index built with mismatched model name or pretrained weights raises VectorStoreIndexError."""
+    import json
+    idx_path, meta_path = temp_index_files
+    vectors, ids, metadata = mock_sarees_and_vectors
+    store = FAISSVectorStore(index_file=idx_path, metadata_file=meta_path, dimension=512)
+    store.add(vectors, ids, metadata)
+    store.save()
+
+    # Modify metadata file to simulate incompatible model
+    with open(meta_path, "r", encoding="utf-8") as f:
+        meta_json = json.load(f)
+    meta_json["model_name"] = "IncompatibleModel-v999"
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta_json, f)
+
+    store_incompat = FAISSVectorStore(index_file=idx_path, metadata_file=meta_path, dimension=512)
+    with pytest.raises(VectorStoreIndexError, match="Model architecture mismatch"):
+        store_incompat.load()

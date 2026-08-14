@@ -24,12 +24,31 @@ class VisualFeatures:
 
     # 3D HSV Color Histogram (8x4x4 = 128 bins normalized)
     color_hist: np.ndarray
-    # Dominant Lab color centers (Top 3 colors in RGB float [0, 1])
+    # Dominant Lab/RGB color centers (Top 3 colors in RGB float [0, 1])
     dominant_colors: np.ndarray
-    # Texture gradient energy across horizontal/vertical frequencies
+    # Texture gradient statistics (mean, std of horizontal/vertical gradients, high-frequency energy)
     texture_profile: np.ndarray
-    # 3x3 spatial grid color and edge density
+    # 3x3 spatial grid color composition
     spatial_layout: np.ndarray
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize visual descriptors to JSON-compatible dictionary."""
+        return {
+            "color_hist": self.color_hist.tolist(),
+            "dominant_colors": self.dominant_colors.tolist(),
+            "texture_profile": self.texture_profile.tolist(),
+            "spatial_layout": self.spatial_layout.tolist(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "VisualFeatures":
+        """Deserialize visual descriptors from stored dictionary."""
+        return cls(
+            color_hist=np.array(data["color_hist"], dtype=np.float32),
+            dominant_colors=np.array(data["dominant_colors"], dtype=np.float32),
+            texture_profile=np.array(data["texture_profile"], dtype=np.float32),
+            spatial_layout=np.array(data["spatial_layout"], dtype=np.float32),
+        )
 
 
 class FineGrainedSareeReranker:
@@ -87,7 +106,7 @@ class FineGrainedSareeReranker:
             pad = np.tile(dominant_colors[0], (3 - len(dominant_colors), 1))
             dominant_colors = np.vstack([dominant_colors, pad])
 
-        # 3. Texture Profile (Sobel gradient magnitude for weave / pattern density)
+        # 3. Texture Profile (Adjacent-pixel gradient statistics for weave and pattern density)
         gray = 0.2989 * arr[:, :, 0] + 0.5870 * arr[:, :, 1] + 0.1140 * arr[:, :, 2]
         grad_x = np.abs(gray[:, 1:] - gray[:, :-1])
         grad_y = np.abs(gray[1:, :] - gray[:-1, :])
@@ -126,14 +145,14 @@ class FineGrainedSareeReranker:
         return 0.7 * hist_sim + 0.3 * dom_sim
 
     def compute_texture_similarity(self, query_feat: VisualFeatures, candidate_feat: VisualFeatures) -> float:
-        """Calculate texture and pattern gradient statistics similarity."""
+        """Calculate gradient-based texture statistics similarity."""
         diff = np.abs(query_feat.texture_profile - candidate_feat.texture_profile)
         scales = np.array([0.2, 0.2, 0.2, 0.2, 0.4], dtype=np.float32)
         norm_diff = np.sum(diff * scales)
         return float(np.clip(1.0 - norm_diff, 0.0, 1.0))
 
     def compute_composition_similarity(self, query_feat: VisualFeatures, candidate_feat: VisualFeatures) -> float:
-        """Calculate 3x3 spatial layout cosine similarity."""
+        """Calculate 3x3 spatial color layout cosine similarity."""
         q_grid = query_feat.spatial_layout
         c_grid = candidate_feat.spatial_layout
         dot = np.dot(q_grid, c_grid)
@@ -147,7 +166,7 @@ class FineGrainedSareeReranker:
         candidates: List[Tuple[str, float, Dict]],
         top_k: int = config.retrieval.default_top_k,
     ) -> List[SearchResultItem]:
-        """Rerank Stage-1 candidates using multi-signal visual analysis."""
+        """Rerank Stage-1 candidates using cached or computed multi-signal visual analysis."""
         if not candidates:
             return []
 
@@ -163,31 +182,46 @@ class FineGrainedSareeReranker:
             # Base embedding score from FAISS [-1.0, 1.0] -> normalize to [0.0, 1.0]
             emb_sim = float(np.clip((base_emb_score + 1.0) / 2.0 if base_emb_score < 0 else base_emb_score, 0.0, 1.0))
 
-            rel_path = meta_dict.get("relative_path", "")
-            img_path = config.storage.images_dir / rel_path if rel_path else None
+            cand_features: Optional[VisualFeatures] = None
 
-            color_sim = emb_sim
-            texture_sim = emb_sim
-            comp_sim = emb_sim
-
-            if img_path and img_path.exists():
+            # 1. Check precomputed feature cache in metadata
+            if meta_dict and "visual_features" in meta_dict and isinstance(meta_dict["visual_features"], dict):
                 try:
-                    cand_img = ImageLoader.load_from_path(img_path)
-                    cand_features = self.extract_visual_features(cand_img)
-
-                    color_sim = self.compute_color_similarity(query_features, cand_features)
-                    texture_sim = self.compute_texture_similarity(query_features, cand_features)
-                    comp_sim = self.compute_composition_similarity(query_features, cand_features)
+                    cand_features = VisualFeatures.from_dict(meta_dict["visual_features"])
                 except Exception as e:
-                    logger.debug(f"Candidate feature extraction failed for {image_id}: {str(e)}")
+                    logger.debug(f"Could not load cached features for {image_id}: {e}")
 
-            # Composite final score calculation
-            final_score = (
-                self.w_emb * emb_sim
-                + self.w_col * color_sim
-                + self.w_tex * texture_sim
-                + self.w_comp * comp_sim
-            )
+            # 2. Fallback to image file feature extraction if not cached
+            if cand_features is None:
+                rel_path = meta_dict.get("relative_path", "") if meta_dict else ""
+                img_path = config.storage.images_dir / rel_path if rel_path else None
+                if img_path and img_path.exists():
+                    try:
+                        cand_img = ImageLoader.load_from_path(img_path)
+                        cand_features = self.extract_visual_features(cand_img)
+                    except Exception as e:
+                        logger.debug(f"Candidate feature extraction failed for {image_id}: {str(e)}")
+
+            # 3. Honest fallback if candidate visual features are completely unavailable
+            if cand_features is not None:
+                color_sim = self.compute_color_similarity(query_features, cand_features)
+                texture_sim = self.compute_texture_similarity(query_features, cand_features)
+                comp_sim = self.compute_composition_similarity(query_features, cand_features)
+                final_score = (
+                    self.w_emb * emb_sim
+                    + self.w_col * color_sim
+                    + self.w_tex * texture_sim
+                    + self.w_comp * comp_sim
+                )
+                features_available = True
+            else:
+                # Do NOT fabricate color/texture/spatial scores from embedding similarity
+                color_sim = 0.0
+                texture_sim = 0.0
+                comp_sim = 0.0
+                final_score = emb_sim
+                features_available = False
+
             final_score = float(np.clip(final_score, 0.0, 1.0))
 
             breakdown = SimilarityBreakdown(
@@ -199,12 +233,12 @@ class FineGrainedSareeReranker:
             )
 
             metadata_obj = SareeMetadata(**meta_dict) if meta_dict else None
-            explanation = self._generate_visual_explanation(breakdown, metadata_obj)
+            explanation = self._generate_visual_explanation(breakdown, metadata_obj, features_available=features_available)
 
             item = SearchResultItem(
                 rank=0,
                 image_id=image_id,
-                relative_path=rel_path,
+                relative_path=meta_dict.get("relative_path", "") if meta_dict else "",
                 score=round(final_score, 4),
                 score_percentage=f"{final_score * 100:.1f}%",
                 breakdown=breakdown,
@@ -227,8 +261,12 @@ class FineGrainedSareeReranker:
         self,
         breakdown: SimilarityBreakdown,
         meta: Optional[SareeMetadata],
+        features_available: bool = True,
     ) -> str:
         """Create a truthful visual explanation based solely on measured similarity metrics."""
+        if not features_available:
+            return f"Matches query ({breakdown.final_score * 100:.0f}% similarity) based on vision embedding alignment; fine-grained visual features were unavailable."
+
         parts = []
 
         # Color evaluation
