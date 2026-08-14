@@ -150,24 +150,20 @@ def render_sidebar():
 
 
 def trigger_search(image_source: Any, top_k: int, candidate_k: int) -> None:
-    """Execute visual similarity search and record assistant response."""
+    """Execute retrieval solely via UI -> Agent -> Tool -> SearchEngine -> Agent -> UI."""
     try:
-        with st.spinner("Analyzing colors, weave textures, and borders..."):
-            response = st.session_state.search_engine.search(
-                query=image_source,
-                top_k=top_k,
-                candidate_k=candidate_k,
-            )
-            st.session_state.search_results = response
+        with st.spinner("Analyzing colors, weave textures, and borders through Agent..."):
+            # Update search engine candidate size if changed in sidebar
+            st.session_state.agent.search_tool.search_engine.reranker.candidate_k = candidate_k
 
-            # Update Agent session
-            _, results_dict = st.session_state.agent.process_message(
-                user_message="Find sarees similar to this image",
+            # Sole retrieval execution: routed through the Agent's tool calling loop
+            agent_reply, results_list = st.session_state.agent.process_message(
+                user_message="Find sarees visually similar to this image.",
                 image_input=image_source,
                 top_k=top_k,
             )
 
-            # Record in chat
+            # Record in chat & store results
             st.session_state.messages.append({
                 "role": "user",
                 "content": "Find sarees visually similar to this image.",
@@ -175,17 +171,13 @@ def trigger_search(image_source: Any, top_k: int, candidate_k: int) -> None:
                 "results": None,
             })
 
-            top_item = response.results[0] if response.results else None
-            bot_text = (
-                f"I found **{len(response.results)} matching sarees** in {response.execution_time_ms}ms! "
-                f"The closest match is **{top_item.image_id if top_item else 'N/A'}** with a "
-                f"**{top_item.score_percentage if top_item else 'N/A'}** visual similarity score."
-            )
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": bot_text,
-                "results": response.results,
+                "content": agent_reply,
+                "results": results_list,
             })
+
+            st.session_state.search_results = results_list
     except Exception as e:
         st.error(f"Search failed: {str(e)}")
 
@@ -231,7 +223,40 @@ def render_results_gallery(results: List[Any]):
     for idx, item in enumerate(results):
         col = cols[idx % 3]
         with col:
-            img_path = config.storage.images_dir / item.relative_path
+            # Handle dictionary or SearchResultItem object
+            if isinstance(item, dict):
+                rank = item.get("rank", idx + 1)
+                score = item.get("score", 0.0)
+                score_pct = item.get("score_percentage", f"{score*100:.1f}%")
+                rel_path = item.get("image_path", "")
+                attrs = item.get("attributes", {}) or {}
+                breakdown = item.get("similarity_breakdown", {}) or {}
+                explanation = item.get("visual_explanation", "")
+                primary_color = attrs.get("primary_color", "Saree")
+                fabric_type = attrs.get("fabric", "Silk")
+                weave_style = attrs.get("weave", "Traditional")
+                border_type = attrs.get("border", "Zari")
+                emb_sim = breakdown.get("embedding_similarity", 0.0)
+                col_sim = breakdown.get("color_similarity", 0.0)
+                tex_sim = breakdown.get("texture_similarity", 0.0)
+                comp_sim = breakdown.get("composition_similarity", 0.0)
+            else:
+                rank = item.rank
+                score = item.score
+                score_pct = item.score_percentage
+                rel_path = item.relative_path
+                meta = item.metadata
+                primary_color = meta.primary_color if meta else "Saree"
+                fabric_type = meta.fabric_type if meta else "Silk"
+                weave_style = meta.weave_style if meta else "Traditional"
+                border_type = meta.border_type if meta else "Zari"
+                emb_sim = item.breakdown.embedding_similarity
+                col_sim = item.breakdown.color_similarity
+                tex_sim = item.breakdown.texture_similarity
+                comp_sim = item.breakdown.composition_similarity
+                explanation = item.visual_explanation
+
+            img_path = config.storage.images_dir / rel_path
             if img_path.exists():
                 try:
                     s_img = Image.open(img_path)
@@ -240,32 +265,31 @@ def render_results_gallery(results: List[Any]):
                     st.error("Image render error")
 
             # Rank and Score badge
-            score_color = "#16a34a" if item.score >= 0.80 else "#2563eb" if item.score >= 0.65 else "#d97706"
+            score_color = "#16a34a" if score >= 0.80 else "#2563eb" if score >= 0.65 else "#d97706"
             st.markdown(
                 f"<div style='display:flex; justify-content:space-between; align-items:center; margin-top:4px;'>"
-                f"<span style='background:#f1f5f9; color:#0f172a; padding:2px 8px; border-radius:4px; font-weight:600; font-size:12px;'>Rank #{item.rank}</span>"
-                f"<span style='background:{score_color}; color:#fff; padding:2px 8px; border-radius:4px; font-weight:700; font-size:13px;'>{item.score_percentage} Match</span>"
+                f"<span style='background:#f1f5f9; color:#0f172a; padding:2px 8px; border-radius:4px; font-weight:600; font-size:12px;'>Rank #{rank}</span>"
+                f"<span style='background:{score_color}; color:#fff; padding:2px 8px; border-radius:4px; font-weight:700; font-size:13px;'>{score_pct} Match</span>"
                 f"</div>",
                 unsafe_allow_html=True,
             )
 
             # Metadata attributes
-            if item.metadata:
-                st.markdown(
-                    f"**{item.metadata.primary_color or 'Saree'} {item.metadata.fabric_type or 'Silk'}**\n\n"
-                    f"• **Weave**: {item.metadata.weave_style or 'Traditional'}\n"
-                    f"• **Border**: {item.metadata.border_type or 'Zari'}"
-                )
+            st.markdown(
+                f"**{primary_color or 'Saree'} {fabric_type or 'Silk'}**\n\n"
+                f"• **Weave**: {weave_style or 'Traditional'}\n"
+                f"• **Border**: {border_type or 'Zari'}"
+            )
 
             # Score breakdown expandable
             with st.expander("🔍 Similarity Breakdown", expanded=False):
-                bd = item.breakdown
-                st.progress(bd.embedding_similarity, text=f"Base Vision Embedding: {bd.embedding_similarity*100:.1f}%")
-                st.progress(bd.color_similarity, text=f"Color Harmony: {bd.color_similarity*100:.1f}%")
-                st.progress(bd.texture_similarity, text=f"Weave / Texture: {bd.texture_similarity*100:.1f}%")
-                st.progress(bd.composition_similarity, text=f"Spatial Composition: {bd.composition_similarity*100:.1f}%")
+                st.progress(float(emb_sim), text=f"Base Vision Embedding: {emb_sim*100:.1f}%")
+                st.progress(float(col_sim), text=f"Color Harmony: {col_sim*100:.1f}%")
+                st.progress(float(tex_sim), text=f"Weave / Texture: {tex_sim*100:.1f}%")
+                st.progress(float(comp_sim), text=f"Spatial Composition: {comp_sim*100:.1f}%")
 
-            st.caption(f"💡 *{item.visual_explanation}*")
+            if explanation:
+                st.caption(f"💡 *{explanation}*")
             st.markdown("---")
 
 
