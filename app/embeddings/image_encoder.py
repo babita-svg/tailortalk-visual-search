@@ -93,6 +93,10 @@ class OpenCLIPImageEncoder(BaseImageEncoder):
         return self._dim
 
     @property
+    def dimension(self) -> int:
+        return self._dim
+
+    @property
     def model_name(self) -> str:
         return f"OpenCLIP-{self._model_name}-{self._pretrained}"
 
@@ -159,6 +163,9 @@ class OpenCLIPImageEncoder(BaseImageEncoder):
 
         return np.array(embeddings, dtype=np.float32)
 
+
+# Convenience alias
+ImageEncoder = OpenCLIPImageEncoder
 
 # Singleton instance container
 _GLOBAL_ENCODER: Union[BaseImageEncoder, None] = None

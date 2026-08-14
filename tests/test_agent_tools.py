@@ -12,6 +12,8 @@ from app.schemas import SearchResultItem, SimilarityBreakdown, SareeMetadata, Se
 def mock_search_response():
     """Create a mock structured search response."""
     metadata = SareeMetadata(
+        image_id="banarasi_crimson",
+        filename="banarasi_crimson_red_gold_zari_brocade.jpg",
         relative_path="banarasi_crimson_red_gold_zari_brocade.jpg",
         primary_color="Crimson Red",
         fabric_type="Pure Katan Silk",

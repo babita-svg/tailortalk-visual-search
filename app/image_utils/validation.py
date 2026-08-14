@@ -57,6 +57,29 @@ class ImageValidator:
         return path
 
     @classmethod
+    def is_valid_url(cls, url: str) -> bool:
+        """Check whether a URL is a valid http/https image URL without raising exceptions."""
+        try:
+            cls.validate_url(url)
+            return True
+        except Exception:
+            return False
+
+    @classmethod
+    def validate_bytes(cls, image_bytes: bytes, max_size_mb: Optional[int] = None) -> Image.Image:
+        """Validate and verify raw byte stream as a valid PIL image with optional custom max size."""
+        if not image_bytes:
+            raise InvalidImageError("Received empty byte buffer for image validation.")
+
+        limit = (max_size_mb * 1024 * 1024) if max_size_mb is not None else cls.MAX_FILE_BYTES
+        if len(image_bytes) > limit:
+            raise InvalidImageError(
+                f"Byte size ({len(image_bytes) / (1024*1024):.1f} MB) exceeds limit ({limit / (1024*1024):.1f} MB)."
+            )
+
+        return cls.validate_raw_bytes(image_bytes)
+
+    @classmethod
     def validate_url(cls, url: str) -> str:
         """Validate format and scheme of an image URL."""
         if not url or not isinstance(url, str):

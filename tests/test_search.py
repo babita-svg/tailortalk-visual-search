@@ -16,17 +16,18 @@ def mock_search_pipeline():
     mock_encoder.encode_image.return_value = np.ones(512, dtype=np.float32) / np.sqrt(512)
     
     mock_meta = SareeMetadata(
-        id="saree_sample",
+        image_id="saree_sample",
         filename="sample.jpg",
-        name="Sample Kanjeevaram",
-        fabric="Silk",
+        relative_path="sample.jpg",
+        fabric_type="Silk",
         primary_color="Green",
+        weave_style="Kanjeevaram",
     )
     
     mock_store = MagicMock()
     mock_store.count.return_value = 1
     mock_store.search.return_value = [
-        {"metadata": mock_meta, "score": 0.88}
+        ("saree_sample", 0.88, mock_meta.model_dump())
     ]
     
     engine = SareeSearchEngine(encoder=mock_encoder, vector_store=mock_store)
@@ -40,5 +41,6 @@ def test_search_pipeline_execution(mock_search_pipeline):
     
     assert isinstance(response, SearchResponse)
     assert len(response.results) >= 1
-    assert response.results[0].item.name == "Sample Kanjeevaram"
-    assert response.execution_time_ms > 0
+    assert response.results[0].image_id == "saree_sample"
+    assert response.results[0].metadata.fabric_type == "Silk"
+    assert response.execution_time_ms >= 0

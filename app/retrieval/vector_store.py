@@ -61,10 +61,12 @@ class FAISSVectorStore(BaseVectorStore):
         dimension: int = config.model.embedding_dim,
         index_file: Optional[Path] = None,
         metadata_file: Optional[Path] = None,
+        index_path: Optional[Path] = None,
+        metadata_path: Optional[Path] = None,
     ) -> None:
         self.dimension = dimension
-        self.index_file = index_file or config.storage.faiss_index_file
-        self.metadata_file = metadata_file or config.storage.metadata_file
+        self.index_file = index_file or index_path or config.storage.faiss_index_file
+        self.metadata_file = metadata_file or metadata_path or config.storage.metadata_file
         self._index: Optional[faiss.IndexFlatIP] = None
         self._id_to_index: Dict[str, int] = {}
         self._index_to_id: Dict[int, str] = {}

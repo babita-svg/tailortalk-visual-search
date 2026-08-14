@@ -11,6 +11,11 @@ class InvalidImageError(TailorTalkError):
     pass
 
 
+class CorruptedImageError(InvalidImageError):
+    """Raised when an input image is corrupted or truncated."""
+    pass
+
+
 class ImageDownloadError(TailorTalkError):
     """Raised when downloading an image from a URL fails or times out."""
     pass
