@@ -163,7 +163,7 @@ def render_sidebar():
         count = get_index_count_fast()
         if count > 0:
             st.success(f"**Vector Index Active**: {count} Sarees Indexed")
-        elif config.storage.index_file.exists():
+        elif config.storage.faiss_index_file.exists():
             st.success("**Vector Index Active**: 83 Sarees Ready")
         else:
             st.info("**Vector Index**: 83 Catalogue items ready. Click below to index.")

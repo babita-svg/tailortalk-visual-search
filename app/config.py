@@ -38,6 +38,7 @@ class StorageConfig:
     images_dir: Path = BASE_DIR / "data" / "images"
     index_dir: Path = BASE_DIR / "data" / "index"
     faiss_index_file: Path = BASE_DIR / "data" / "index" / "saree_faiss.index"
+    index_file: Path = BASE_DIR / "data" / "index" / "saree_faiss.index"
     metadata_file: Path = BASE_DIR / "data" / "index" / "saree_metadata.json"
     supported_extensions: Tuple[str, ...] = (".jpg", ".jpeg", ".png", ".webp")
     max_upload_size_mb: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10"))
