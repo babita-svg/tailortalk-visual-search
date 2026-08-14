@@ -1,5 +1,6 @@
 """Unit tests for FAISS vector store indexing, persistence, duplicate prevention, and integrity."""
 
+import json
 import os
 import shutil
 import tempfile
