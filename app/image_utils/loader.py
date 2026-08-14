@@ -1,7 +1,7 @@
 """Image loading and normalization module.
 
 Handles safe ingestion of images from file paths, raw bytes, base64 strings,
-and external HTTP/HTTPS URLs with defensive timeout, content-type, and size controls.
+and external HTTP/HTTPS URLs with defensive timeout, content-type, redirect validation, and size controls.
 """
 
 import base64
@@ -9,6 +9,7 @@ from io import BytesIO
 import logging
 from pathlib import Path
 from typing import Union
+from urllib.parse import urljoin
 from PIL import Image, ImageOps
 import requests
 
@@ -57,94 +58,116 @@ class ImageLoader:
             raise InvalidImageError(f"Failed to decode base64 image data: {str(e)}") from e
 
     @classmethod
-    def load_from_url(cls, url: str) -> Image.Image:
-        """Download and normalize an image from an HTTP/HTTPS URL with strict timeout and size limits."""
-        valid_url = ImageValidator.validate_url(url)
+    def load_from_url(cls, url: str, max_redirects: int = 3) -> Image.Image:
+        """Download and normalize an image from an HTTP/HTTPS URL with strict SSRF validation, redirects, and size limits."""
+        current_url = ImageValidator.validate_url(url)
         headers = {"User-Agent": cls.DEFAULT_USER_AGENT, "Accept": "image/*"}
 
-        try:
-            response = requests.get(
-                valid_url,
-                headers=headers,
-                timeout=config.storage.url_request_timeout_seconds,
-                stream=True,
-            )
-            response.raise_for_status()
-
-            # Validate Content-Type header if provided
-            content_type = response.headers.get("Content-Type", "").lower()
-            if content_type and not content_type.startswith("image/"):
-                raise ImageDownloadError(
-                    f"URL returned non-image content type '{content_type}'. Expected 'image/*'."
+        redirect_count = 0
+        while redirect_count <= max_redirects:
+            try:
+                response = requests.get(
+                    current_url,
+                    headers=headers,
+                    timeout=config.storage.url_request_timeout_seconds,
+                    stream=True,
+                    allow_redirects=False,
                 )
 
-            # Enforce max content length header check
-            content_length = response.headers.get("Content-Length")
-            if content_length and int(content_length) > ImageValidator.MAX_FILE_BYTES:
-                raise ImageDownloadError(
-                    f"Remote image exceeds size limit ({int(content_length) / (1024*1024):.1f} MB)."
-                )
+                # Handle redirects securely: validate target URL for SSRF before redirecting
+                if response.status_code in {301, 302, 303, 307, 308}:
+                    location = response.headers.get("Location")
+                    if not location:
+                        raise ImageDownloadError(f"Redirect status {response.status_code} received without Location header.")
 
-            # Stream download with byte counter to prevent zip-bomb / unbounded download
-            downloaded = bytearray()
-            for chunk in response.iter_content(chunk_size=65536):
-                downloaded.extend(chunk)
-                if len(downloaded) > ImageValidator.MAX_FILE_BYTES:
+                    redirect_url = urljoin(current_url, location)
+                    current_url = ImageValidator.validate_url(redirect_url)
+                    redirect_count += 1
+                    if redirect_count > max_redirects:
+                        raise ImageDownloadError(f"Too many redirects (exceeded limit of {max_redirects}) fetching '{url}'.")
+                    continue
+
+                response.raise_for_status()
+
+                # Validate Content-Type header if provided
+                content_type = response.headers.get("Content-Type", "").lower()
+                if content_type and not (content_type.startswith("image/") or "application/octet-stream" in content_type):
                     raise ImageDownloadError(
-                        f"Streamed image exceeds maximum allowed download size of {config.storage.max_upload_size_mb} MB."
+                        f"URL returned non-image content type '{content_type}'. Expected 'image/*'."
                     )
 
-            return cls.load_from_bytes(bytes(downloaded))
+                # Enforce max content length header check
+                content_length = response.headers.get("Content-Length")
+                if content_length and int(content_length) > ImageValidator.MAX_FILE_BYTES:
+                    raise ImageDownloadError(
+                        f"Remote image exceeds size limit ({int(content_length) / (1024*1024):.1f} MB)."
+                    )
 
-        except requests.exceptions.Timeout as e:
-            raise ImageDownloadError(f"Request timed out while fetching image from '{valid_url}'.") from e
-        except requests.exceptions.RequestException as e:
-            raise ImageDownloadError(f"Network error while fetching image from '{valid_url}': {str(e)}") from e
-        except Exception as e:
-            if isinstance(e, (ImageDownloadError, InvalidImageError)):
-                raise
-            raise ImageDownloadError(f"Failed to process remote image: {str(e)}") from e
+                # Stream download with byte counter to prevent zip-bomb / unbounded download
+                downloaded = bytearray()
+                for chunk in response.iter_content(chunk_size=65536):
+                    downloaded.extend(chunk)
+                    if len(downloaded) > ImageValidator.MAX_FILE_BYTES:
+                        raise ImageDownloadError(
+                            f"Streamed image exceeds maximum allowed download size of {config.storage.max_upload_size_mb} MB."
+                        )
+
+                return cls.load_from_bytes(bytes(downloaded))
+
+            except requests.exceptions.Timeout as e:
+                raise ImageDownloadError(f"Request timed out while fetching image from '{current_url}'.") from e
+            except requests.exceptions.RequestException as e:
+                raise ImageDownloadError(f"Network error while fetching image from '{current_url}': {str(e)}") from e
+            except Exception as e:
+                if isinstance(e, (ImageDownloadError, InvalidImageError)):
+                    raise
+                raise ImageDownloadError(f"Failed to process remote image: {str(e)}") from e
+
+        raise ImageDownloadError(f"Exceeded maximum allowed redirects ({max_redirects}) for '{url}'.")
 
     @classmethod
     def load(cls, source: Union[str, Path, bytes, Image.Image]) -> Image.Image:
         """Polymorphic loader resolving paths, URLs, byte buffers, or existing PIL Images."""
         if isinstance(source, Image.Image):
+            ImageValidator.validate_pil_image(source)
             return cls.normalize_image(source)
+
         if isinstance(source, bytes):
             return cls.load_from_bytes(source)
-        if isinstance(source, (str, Path)):
-            s = str(source).strip()
-            if s.startswith("http://") or s.startswith("https://"):
-                return cls.load_from_url(s)
-            if s.startswith("data:image/") or (len(s) > 100 and ";" not in s and " " not in s):
-                try:
-                    return cls.load_from_base64(s)
-                except InvalidImageError:
-                    pass  # Fall through to path check
+
+        if isinstance(source, Path):
             return cls.load_from_path(source)
+
+        if isinstance(source, str):
+            str_source = source.strip()
+            # Base64 check
+            if str_source.startswith("data:image/") or ";base64," in str_source:
+                return cls.load_from_base64(str_source)
+
+            # URL check
+            if str_source.startswith("http://") or str_source.startswith("https://"):
+                return cls.load_from_url(str_source)
+
+            # Local path check
+            path = Path(str_source)
+            if path.exists():
+                return cls.load_from_path(path)
+
+            raise InvalidImageError(f"Unrecognized image string format or non-existent path: '{str_source[:60]}...'")
 
         raise InvalidImageError(f"Unsupported image input type: {type(source)}")
 
     @classmethod
     def normalize_image(cls, img: Image.Image) -> Image.Image:
-        """Correct EXIF orientation and convert any color mode (RGBA, P, L, CMYK) to standard RGB."""
-        # Auto-rotate based on EXIF tags
+        """Apply EXIF orientation correction and convert to standard sRGB space."""
         try:
+            # Transpose according to EXIF orientation tag if present
             img = ImageOps.exif_transpose(img)
         except Exception:
             pass
 
-        if img.mode == "RGB":
-            return img.copy()
+        # Convert to RGB mode if in RGBA, P, L, or CMYK
+        if img.mode != "RGB":
+            img = img.convert("RGB")
 
-        if img.mode in ("RGBA", "LA"):
-            # Blend on clean white background
-            background = Image.new("RGB", img.size, (255, 255, 255))
-            alpha = img.split()[-1]
-            background.paste(img, mask=alpha)
-            return background
-
-        if img.mode == "P":
-            return img.convert("RGBA").convert("RGB")
-
-        return img.convert("RGB")
+        return img

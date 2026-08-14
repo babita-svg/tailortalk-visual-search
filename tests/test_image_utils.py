@@ -1,4 +1,4 @@
-"""Unit tests for image loading, preprocessing, and validation utilities."""
+"""Unit tests for image loading, preprocessing, validation, and SSRF security utilities."""
 
 import io
 from pathlib import Path
@@ -58,10 +58,34 @@ def test_load_pil_image(valid_rgba_image):
     assert img.size == (200, 200)
 
 
-def test_url_validation():
+def test_url_validation_basic():
     """Test URL scheme and format validation."""
     assert ImageValidator.is_valid_url("https://example.com/saree.jpg") is True
     assert ImageValidator.is_valid_url("http://images.unsplash.com/photo-123.png") is True
     assert ImageValidator.is_valid_url("file:///etc/passwd") is False
     assert ImageValidator.is_valid_url("ftp://server/img.jpg") is False
     assert ImageValidator.is_valid_url("not-a-url") is False
+
+
+def test_ssrf_ip_checks():
+    """Test SSRF safe IP classification."""
+    assert ImageValidator.is_safe_ip("8.8.8.8") is True
+    assert ImageValidator.is_safe_ip("1.1.1.1") is True
+    assert ImageValidator.is_safe_ip("127.0.0.1") is False
+    assert ImageValidator.is_safe_ip("10.0.0.1") is False
+    assert ImageValidator.is_safe_ip("192.168.1.1") is False
+    assert ImageValidator.is_safe_ip("172.16.0.1") is False
+    assert ImageValidator.is_safe_ip("169.254.169.254") is False
+    assert ImageValidator.is_safe_ip("::1") is False
+
+
+def test_ssrf_url_blocking():
+    """Test that SSRF URLs targeting localhost and metadata endpoints are blocked."""
+    with pytest.raises(InvalidImageError, match="Security: Hostname"):
+        ImageValidator.validate_url("http://localhost/secret.jpg")
+
+    with pytest.raises(InvalidImageError, match="Security: Hostname"):
+        ImageValidator.validate_url("http://127.0.0.1:8080/test.png")
+
+    with pytest.raises(InvalidImageError, match="Security: Hostname"):
+        ImageValidator.validate_url("http://169.254.169.254/latest/meta-data/")

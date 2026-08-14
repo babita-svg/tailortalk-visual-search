@@ -96,7 +96,7 @@ def test_agent_visual_search_execution(mock_search_tool):
         image_input="sample_query.jpg",
         top_k=5,
     )
-    mock_search_tool.run.assert_called_once_with(image_reference="sample_query.jpg", top_k=5)
+    mock_search_tool.run.assert_called_once_with(image_reference="sample_query.jpg", top_k=5, candidate_k=None)
     assert results is not None
     assert len(results) == 2
     assert "Top Match" in reply or "analyzed" in reply.lower()

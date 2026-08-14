@@ -49,7 +49,7 @@ class TailorTalkAgent:
                 "name": "search_similar_sarees",
                 "description": (
                     "Search the saree catalog for visually similar sarees based on color distribution, "
-                    "weave texture, border motifs, and pallu layout. Call this tool whenever the user wants "
+                    "texture profile, and spatial layout. Call this tool whenever the user wants "
                     "to find matches, search the catalogue, retrieve visually similar items, or analyze an image."
                 ),
                 "parameters": {
@@ -60,9 +60,14 @@ class TailorTalkAgent:
                             "description": "Number of top matching sarees to return (default 6, range 1-20).",
                             "default": 6,
                         },
+                        "candidate_k": {
+                            "type": "integer",
+                            "description": "Stage-1 vector candidate pool size (default 30, range 1-100).",
+                            "default": 30,
+                        },
                         "query_description": {
                             "type": "string",
-                            "description": "Optional textual focus or description of what visual attributes to prioritize (e.g. 'gold zari border', 'red silk').",
+                            "description": "Optional textual focus or description of what visual attributes to prioritize.",
                         },
                     },
                     "required": [],
@@ -75,13 +80,13 @@ class TailorTalkAgent:
         user_message: str,
         has_image: bool,
         top_k: int = config.retrieval.default_top_k,
+        candidate_k: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Query the LLM with function declarations and conversation history to obtain tool call decisions."""
         if not self.api_key:
             return {"mode": "fallback"}
 
         try:
-            # Attempt to use google.genai or standard Gemini REST endpoints
             import requests
 
             tools_payload = [
@@ -101,9 +106,13 @@ class TailorTalkAgent:
                                         "type": "INTEGER",
                                         "description": "Number of top results to return (1-20).",
                                     },
+                                    "candidate_k": {
+                                        "type": "INTEGER",
+                                        "description": "Stage-1 vector candidate pool size.",
+                                    },
                                     "aspect_focus": {
                                         "type": "STRING",
-                                        "description": "Specific visual attribute focus (e.g. 'color', 'weave', 'border', 'overall').",
+                                        "description": "Specific visual attribute focus (e.g. 'color', 'texture', 'spatial', 'overall').",
                                     },
                                 },
                             },
@@ -112,13 +121,11 @@ class TailorTalkAgent:
                 }
             ]
 
-            # Build messages contents
             contents = []
             for h in self.history[-6:]:
                 role = "user" if h.role == "user" else "model"
                 contents.append({"role": role, "parts": [{"text": h.content}]})
 
-            # Append current user prompt with multimodal context note if image present
             current_text = user_message
             if has_image:
                 current_text += "\n[Context: User has uploaded/provided a query saree image in the current session]"
@@ -150,42 +157,56 @@ class TailorTalkAgent:
                             fc = part["functionCall"]
                             args = fc.get("args", {})
                             requested_k = args.get("top_k", top_k)
+                            requested_cand_k = args.get("candidate_k", candidate_k)
                             return {
                                 "mode": "tool_call",
                                 "tool_name": fc.get("name"),
                                 "tool_args": args,
                                 "top_k": int(requested_k) if requested_k else top_k,
+                                "candidate_k": int(requested_cand_k) if requested_cand_k else candidate_k,
                             }
                         if "text" in part and part["text"].strip():
                             return {
                                 "mode": "direct_text",
                                 "text": part["text"].strip(),
                             }
-
         except Exception as e:
-            logger.warning(f"LLM tool calling API invocation failed, transitioning to deterministic classifier: {e}")
+            logger.warning(f"LLM tool calling request failed: {e}. Switching to semantic fallback.")
 
         return {"mode": "fallback"}
 
     def _call_llm_post_search(
         self,
         user_message: str,
-        tool_results: List[Dict[str, Any]],
+        results: List[Dict[str, Any]],
     ) -> Optional[str]:
-        """Synthesize natural language response using LLM based on actual structured search tool results."""
-        if not self.api_key or not tool_results:
+        """Ask LLM to summarize search results concisely for the user."""
+        if not self.api_key or not results:
             return None
 
         try:
             import requests
 
+            summary_items = []
+            for r in results[:4]:
+                attrs = r.get("attributes", {})
+                breakdown = r.get("similarity_breakdown", {})
+                summary_items.append({
+                    "rank": r.get("rank"),
+                    "score_percentage": r.get("score_percentage"),
+                    "fabric": attrs.get("fabric") if attrs.get("fabric") != "Unknown" else "Not specified",
+                    "color": attrs.get("primary_color") if attrs.get("primary_color") != "Unknown" else "Not specified",
+                    "color_sim": breakdown.get("color_similarity"),
+                    "texture_sim": breakdown.get("texture_similarity"),
+                    "spatial_sim": breakdown.get("composition_similarity"),
+                    "explanation": r.get("visual_explanation"),
+                })
+
             prompt = (
                 f"User asked: '{user_message}'\n\n"
-                f"The visual search tool `search_similar_sarees` returned the following genuine top catalog matches:\n"
-                f"{json.dumps(tool_results[:4], indent=2)}\n\n"
-                f"Synthesize an expert, concise, fashion-stylist summary explaining why these top matches were retrieved, "
-                f"highlighting specific color harmonies, weave textures, border styles, and zari details from the results. "
-                f"Do not hallucinate products or fabrics not in the result set."
+                f"Visual Search Results from catalogue:\n{json.dumps(summary_items, indent=2)}\n\n"
+                f"Provide a natural, structured summary highlighting the top match and why it was selected based on "
+                f"color harmony, texture profile, and spatial layout. Do not fabricate textile details not present in the data."
             )
 
             endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
@@ -194,7 +215,6 @@ class TailorTalkAgent:
                 "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
                 "generationConfig": {"temperature": 0.3, "maxOutputTokens": 600},
             }
-
             resp = requests.post(endpoint, json=payload, timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
@@ -214,6 +234,7 @@ class TailorTalkAgent:
         user_message: str,
         image_input: Optional[Union[str, bytes, Image.Image]] = None,
         top_k: int = config.retrieval.default_top_k,
+        candidate_k: Optional[int] = None,
     ) -> Tuple[str, Optional[List[Dict[str, Any]]]]:
         """Process user input through genuine LLM agent tool calling loop.
 
@@ -224,30 +245,35 @@ class TailorTalkAgent:
             4. Feeds structured retrieval results back to formulate response
             5. Returns assistant text and structured results.
         """
-        # Store user query image if provided
         if image_input is not None:
             self.last_query_image = image_input
 
         has_image = bool(image_input or self.last_query_image)
 
         # 1. Ask LLM with Function Declarations
-        llm_decision = self._call_llm_with_tools(user_message, has_image=has_image, top_k=top_k)
+        llm_decision = self._call_llm_with_tools(
+            user_message,
+            has_image=has_image,
+            top_k=top_k,
+            candidate_k=candidate_k,
+        )
 
         # 2. Tool Execution Branch
         if llm_decision.get("mode") == "tool_call":
             call_k = llm_decision.get("top_k", top_k)
+            call_cand_k = llm_decision.get("candidate_k", candidate_k)
             query_img = image_input or self.last_query_image
 
             if not query_img:
                 reply = (
                     "I would be glad to search for matching sarees! Please upload an image or provide "
-                    "a direct image URL so the visual search pipeline can analyze its colors, weave, and border patterns."
+                    "a direct image URL so the visual search pipeline can analyze its colors, texture, and spatial composition."
                 )
                 self.history.append(ChatMessage(role="assistant", content=reply))
                 return reply, None
 
-            # Execute tool
-            tool_output = self.search_tool.run(image_reference=query_img, top_k=call_k)
+            # Execute tool with candidate_k propagation
+            tool_output = self.search_tool.run(image_reference=query_img, top_k=call_k, candidate_k=call_cand_k)
             if tool_output.get("status") == "error":
                 error_msg = tool_output.get("error_message", "Unknown error during visual search.")
                 reply = f"⚠️ Visual search encountered an issue: {error_msg}"
@@ -270,13 +296,14 @@ class TailorTalkAgent:
             return reply, None
 
         # 4. Fallback Reasoning (Used when offline or no API key configured)
-        return self._handle_fallback_pipeline(user_message, image_input, top_k)
+        return self._handle_fallback_pipeline(user_message, image_input, top_k, candidate_k)
 
     def _handle_fallback_pipeline(
         self,
         user_message: str,
         image_input: Optional[Union[str, bytes, Image.Image]],
         top_k: int,
+        candidate_k: Optional[int] = None,
     ) -> Tuple[str, Optional[List[Dict[str, Any]]]]:
         """Deterministic agent pipeline for offline or API-independent environments."""
         msg = user_message.lower().strip()
@@ -305,7 +332,7 @@ class TailorTalkAgent:
             return reply, self.last_search_results
 
         if is_search:
-            tool_output = self.search_tool.run(image_reference=query_img, top_k=top_k)
+            tool_output = self.search_tool.run(image_reference=query_img, top_k=top_k, candidate_k=candidate_k)
             if tool_output.get("status") == "error":
                 reply = f"⚠️ Visual search failed: {tool_output.get('error_message')}"
                 self.history.append(ChatMessage(role="assistant", content=reply))
@@ -322,7 +349,7 @@ class TailorTalkAgent:
         return reply, None
 
     def _generate_search_summary_response(self, user_query: str, tool_output: Dict[str, Any]) -> str:
-        """Synthesize natural language response summarizing visual matches."""
+        """Synthesize natural language response summarizing visual matches truthfully without unsupported defaults."""
         results = tool_output.get("results", [])
         if not results:
             return (
@@ -332,19 +359,28 @@ class TailorTalkAgent:
 
         top = results[0]
         top_pct = top.get("score_percentage", "N/A")
-        top_fabric = top.get("attributes", {}).get("fabric", "Silk")
-        top_color = top.get("attributes", {}).get("primary_color", "Multicolor")
-        top_weave = top.get("attributes", {}).get("weave", "traditional weave")
-        top_border = top.get("attributes", {}).get("border", "ornate border")
+        attrs = top.get("attributes", {})
+        top_fabric = attrs.get("fabric") if attrs.get("fabric") != "Unknown" else "Catalog item"
+        top_color = attrs.get("primary_color") if attrs.get("primary_color") != "Unknown" else "Matched"
+        top_weave = attrs.get("weave") if attrs.get("weave") != "Unknown" else None
+        top_border = attrs.get("border") if attrs.get("border") != "Unknown" else None
+
+        details = []
+        if top_weave:
+            details.append(f"Weave pattern: {top_weave}")
+        if top_border:
+            details.append(f"Border style: {top_border}")
+
+        details_str = f"- **Textile Details**: {', '.join(details)}\n" if details else ""
 
         text = (
             f"✨ I've analyzed your saree using our multi-stage computer vision pipeline! "
-            f"Here are the top **{len(results)} visual matches** ranked by fine-grained color, weave texture, and border alignment:\n\n"
+            f"Here are the top **{len(results)} visual matches** ranked by fine-grained color distribution, texture profile, and spatial layout:\n\n"
             f"🏆 **Top Match (Rank 1 — {top_pct} Match)**:\n"
-            f"- **Style & Fabric**: {top_color} {top_fabric} featuring {top_weave}.\n"
-            f"- **Craftsmanship**: {top_border}.\n"
+            f"- **Item**: {top_color} {top_fabric}\n"
+            f"{details_str}"
             f"- **Visual Relevance**: {top.get('visual_explanation')}\n\n"
-            f"Browse the visual gallery below to inspect the full score breakdowns, color histograms, and structural details."
+            f"Browse the visual gallery below to inspect the full score breakdowns and similarity metrics."
         )
         return text
 
@@ -353,21 +389,26 @@ class TailorTalkAgent:
         if not results or len(results) < 2:
             return (
                 "Based on the visual retrieval, the top match is the most relevant saree with the highest "
-                "overall harmony in primary hues, fabric texture, and border styling."
+                "overall harmony in color distribution, texture profile, and spatial composition."
             )
 
         r1 = results[0]
         r2 = results[1]
+        a1 = r1.get("attributes", {})
+        a2 = r2.get("attributes", {})
+
+        f1 = a1.get("fabric") if a1.get("fabric") != "Unknown" else "Item"
+        f2 = a2.get("fabric") if a2.get("fabric") != "Unknown" else "Item"
 
         text = (
             f"🔍 **Visual Comparison between Top Matches**:\n\n"
-            f"• **Rank 1 ({r1.get('score_percentage')} match - {r1.get('attributes', {}).get('fabric', 'Silk')})**:\n"
-            f"  Leading match with high color fidelity ({r1.get('similarity_breakdown', {}).get('color_similarity', 0)*100:.0f}%) "
-            f"and matching {r1.get('attributes', {}).get('weave', 'weave')}.\n\n"
-            f"• **Rank 2 ({r2.get('score_percentage')} match - {r2.get('attributes', {}).get('fabric', 'Silk')})**:\n"
-            f"  Alternative option emphasizing {r2.get('attributes', {}).get('primary_color', 'color')} tones "
-            f"with {r2.get('similarity_breakdown', {}).get('texture_similarity', 0)*100:.0f}% weave texture alignment.\n\n"
-            f"Both pieces share complementary drape characteristics and traditional ornamentation."
+            f"• **Rank 1 ({r1.get('score_percentage')} match - {f1})**:\n"
+            f"  Leading match with {r1.get('similarity_breakdown', {}).get('color_similarity', 0)*100:.0f}% color fidelity "
+            f"and {r1.get('similarity_breakdown', {}).get('texture_similarity', 0)*100:.0f}% texture alignment.\n\n"
+            f"• **Rank 2 ({r2.get('score_percentage')} match - {f2})**:\n"
+            f"  Alternative match with {r2.get('similarity_breakdown', {}).get('color_similarity', 0)*100:.0f}% color fidelity "
+            f"and {r2.get('similarity_breakdown', {}).get('composition_similarity', 0)*100:.0f}% spatial layout alignment.\n\n"
+            f"Both pieces share high visual harmony with the query image."
         )
         return text
 
@@ -379,7 +420,7 @@ class TailorTalkAgent:
                 "Hello! Welcome to **TailorTalk** — your visual saree similarity search and styling agent.\n\n"
                 "You can:\n"
                 "1. 📸 **Upload or link a saree photo** to find visually matching sarees in our catalog.\n"
-                "2. 🎨 **Explore fine-grained similarity** across colors, zari brocade, weaves, and border styles.\n"
+                "2. 🎨 **Explore fine-grained similarity** across colors, texture profiles, and spatial composition.\n"
                 "3. 💬 **Ask styling questions** about Banarasi, Kanjeevaram, Chanderi, Bandhani, or Kalamkari sarees.\n\n"
                 "How may I assist your saree search today?"
             )
@@ -412,7 +453,6 @@ class TailorTalkAgent:
 
         return (
             "I'm here to help you discover and compare Indian sarees! You can upload an image of any saree you love, "
-            "and I will perform a fine-grained visual search across our catalog analyzing dominant hues, weave density, "
-            "and border craftsmanship."
+            "and I will perform a fine-grained visual search across our catalog analyzing dominant hues, texture profile, "
+            "and spatial composition."
         )
-

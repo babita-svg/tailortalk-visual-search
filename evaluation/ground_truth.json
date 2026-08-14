@@ -1,0 +1,57 @@
+{
+  "banarasi_crimson_red_gold_zari_brocade.jpg": {
+    "query_name": "Banarasi Crimson Brocade",
+    "relevant_ids": [
+      "banarasi_royal_navy_blue_silver_zari",
+      "bandhani_traditional_ruby_red_yellow_dots"
+    ]
+  },
+  "kanjeevaram_emerald_green_ruby_red_border.jpg": {
+    "query_name": "Kanjeevaram Emerald Temple",
+    "relevant_ids": [
+      "kanjeevaram_mustard_gold_peacock_blue_border",
+      "patola_emerald_and_mustard_geometric_parrot"
+    ]
+  },
+  "bandhani_traditional_ruby_red_yellow_dots.jpg": {
+    "query_name": "Bandhani Traditional Dots",
+    "relevant_ids": [
+      "bandhani_deep_maroon_white_leheriya",
+      "banarasi_crimson_red_gold_zari_brocade"
+    ]
+  },
+  "kalamkari_natural_beige_tree_of_life_cotton.jpg": {
+    "query_name": "Kalamkari Botanical Beige",
+    "relevant_ids": [
+      "kalamkari_indigo_blue_mythological_motifs",
+      "tussar_silk_raw_golden_beige_kantha_embroidery"
+    ]
+  },
+  "chanderi_pastel_peach_silver_zari_booti.jpg": {
+    "query_name": "Chanderi Pastel Peach",
+    "relevant_ids": [
+      "chanderi_mint_green_geometric_zari",
+      "organza_glass_tissue_powder_blue_scallop_zari"
+    ]
+  },
+  "georgette_rose_pink_botanical_print.jpg": {
+    "query_name": "Georgette Rose Botanical",
+    "relevant_ids": [
+      "georgette_lavender_ombre_floral_digital_print"
+    ]
+  },
+  "patola_double_ikat_maroon_black_elephant.jpg": {
+    "query_name": "Patola Double Ikat Maroon",
+    "relevant_ids": [
+      "patola_emerald_and_mustard_geometric_parrot",
+      "sambalpuri_ikat_terracotta_chevron_black_border"
+    ]
+  },
+  "tussar_silk_raw_golden_beige_kantha_embroidery.jpg": {
+    "query_name": "Tussar Raw Golden Kantha",
+    "relevant_ids": [
+      "tussar_silk_rust_orange_tribal_weave",
+      "kalamkari_natural_beige_tree_of_life_cotton"
+    ]
+  }
+}

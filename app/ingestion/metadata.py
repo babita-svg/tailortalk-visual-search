@@ -1,7 +1,7 @@
 """Metadata extraction for dataset saree images."""
 
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 from PIL import Image
 
@@ -28,37 +28,65 @@ def extract_dominant_color_palette(img: Image.Image, num_colors: int = 5) -> Lis
     return palette
 
 
-def estimate_saree_attributes_from_filename(filename: str) -> Dict[str, str]:
-    """Derive semantic attributes from catalog filename patterns."""
+def estimate_saree_attributes_from_filename(filename: str) -> Dict[str, Optional[str]]:
+    """Derive semantic attributes from catalog filename patterns without fabricating unsupported defaults."""
     clean = filename.lower().replace("-", " ").replace("_", " ")
 
     # Fabric heuristics
-    fabrics = ["banarasi", "kanjeevaram", "chanderi", "bandhani", "patola", "tussar", "georgette", "cotton", "kasavu", "silk", "organza", "crepe", "linen"]
-    fabric_type = "Silk"
+    fabrics = [
+        "banarasi", "kanjeevaram", "chanderi", "bandhani", "patola", "tussar",
+        "georgette", "cotton", "kasavu", "silk", "organza", "crepe", "linen", "paithani", "sambalpuri", "kalamkari"
+    ]
+    fabric_type: Optional[str] = None
     for f in fabrics:
         if f in clean:
             fabric_type = f.title()
             break
 
     # Weave & Pattern heuristics
-    weaves = ["zari brocade", "temple border", "tie-dye", "ikat", "floral print", "digital print", "embroidered", "plain woven", "geometric", "block print", "buta"]
-    weave_style = "Handloom Weave"
+    weaves = [
+        "zari brocade", "temple border", "tie-dye", "leheriya", "ikat", "floral print",
+        "digital print", "embroidered", "plain woven", "geometric", "block print",
+        "buta", "booti", "kantha", "tribal weave", "tree of life", "chevron", "elephant", "parrot", "peacock"
+    ]
+    weave_style: Optional[str] = None
     for w in weaves:
         if w in clean:
             weave_style = w.title()
             break
 
     # Color heuristics
-    colors = ["crimson red", "red", "ruby", "emerald green", "green", "royal blue", "navy", "blue", "mustard yellow", "yellow", "gold", "pink", "magenta", "purple", "violet", "orange", "maroon", "black", "ivory", "white", "teal", "turquoise", "peach", "lavender"]
-    primary_color = "Multicolor"
+    colors = [
+        "crimson red", "ruby red", "red", "emerald green", "mint green", "green",
+        "royal navy blue", "navy blue", "powder blue", "indigo blue", "peacock blue", "blue",
+        "mustard yellow", "mustard gold", "yellow", "gold", "rose pink", "pink", "magenta",
+        "purple", "violet", "orange", "rust orange", "terracotta", "maroon", "deep maroon",
+        "black", "offwhite", "ivory", "white", "beige", "golden beige", "teal", "turquoise", "peach", "lavender"
+    ]
+    primary_color: Optional[str] = None
     for c in colors:
         if c in clean:
             primary_color = c.title()
             break
 
     # Border heuristics
-    border_type = "Zari Border" if ("zari" in clean or "gold" in clean or "border" in clean) else "Contrasting Border"
-    pallu_style = "Heavy Brocade Pallu" if ("banarasi" in clean or "kanjeevaram" in clean) else "Embellished Pallu"
+    border_type: Optional[str] = None
+    if "zari border" in clean or ("gold" in clean and "border" in clean):
+        border_type = "Zari Border"
+    elif "silver zari" in clean:
+        border_type = "Silver Zari Border"
+    elif "border" in clean:
+        border_type = "Contrasting Border"
+
+    # Pallu heuristics
+    pallu_style: Optional[str] = None
+    if "pallu" in clean:
+        if "mor" in clean or "peacock" in clean:
+            pallu_style = "Peacock Motif Pallu"
+        elif "brocade" in clean:
+            pallu_style = "Brocade Pallu"
+        else:
+            pallu_style = "Embellished Pallu"
 
     return {
         "fabric_type": fabric_type,
@@ -81,6 +109,20 @@ def extract_metadata_for_image(image_path: Path, dataset_root: Path) -> SareeMet
 
     attrs = estimate_saree_attributes_from_filename(image_path.name)
 
+    # Build truthful summary description from available attributes
+    desc_parts = []
+    if attrs["primary_color"]:
+        desc_parts.append(attrs["primary_color"])
+    if attrs["fabric_type"]:
+        desc_parts.append(attrs["fabric_type"])
+    desc_parts.append("saree")
+    if attrs["weave_style"]:
+        desc_parts.append(f"with {attrs['weave_style']}")
+    if attrs["border_type"]:
+        desc_parts.append(f"and {attrs['border_type']}")
+
+    desc_str = " ".join(desc_parts) + "."
+
     return SareeMetadata(
         image_id=image_id,
         filename=image_path.name,
@@ -88,10 +130,10 @@ def extract_metadata_for_image(image_path: Path, dataset_root: Path) -> SareeMet
         file_size_bytes=file_size,
         dimensions=dims,
         color_palette=palette,
-        primary_color=attrs["primary_color"],
-        fabric_type=attrs["fabric_type"],
-        weave_style=attrs["weave_style"],
-        border_type=attrs["border_type"],
-        pallu_style=attrs["pallu_style"],
-        description=f"{attrs['primary_color']} {attrs['fabric_type']} saree with {attrs['weave_style']} and {attrs['border_type']}.",
+        primary_color=attrs["primary_color"] or "Unknown",
+        fabric_type=attrs["fabric_type"] or "Unknown",
+        weave_style=attrs["weave_style"] or "Unknown",
+        border_type=attrs["border_type"] or "Unknown",
+        pallu_style=attrs["pallu_style"] or "Unknown",
+        description=desc_str,
     )

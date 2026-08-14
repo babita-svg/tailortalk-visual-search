@@ -35,14 +35,16 @@ class VisualSareeSimilaritySearchTool:
         self,
         image_reference: Union[str, bytes],
         top_k: int = config.retrieval.default_top_k,
+        candidate_k: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Execute the visual search tool."""
-        return self.run(image_reference=image_reference, top_k=top_k)
+        return self.run(image_reference=image_reference, top_k=top_k, candidate_k=candidate_k)
 
     def run(
         self,
         image_reference: Union[str, bytes],
         top_k: int = config.retrieval.default_top_k,
+        candidate_k: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Execute search and return a clean, structured JSON-compatible response."""
         try:
@@ -54,7 +56,10 @@ class VisualSareeSimilaritySearchTool:
                 }
 
             top_k = max(1, min(top_k, config.retrieval.max_top_k))
-            response = self.search_engine.search(query=image_reference, top_k=top_k)
+            cand_k = candidate_k or config.retrieval.candidate_top_k
+            cand_k = max(top_k, cand_k)
+
+            response = self.search_engine.search(query=image_reference, top_k=top_k, candidate_k=cand_k)
 
             formatted_results = []
             for item in response.results:
@@ -71,11 +76,11 @@ class VisualSareeSimilaritySearchTool:
                         "composition_similarity": item.breakdown.composition_similarity,
                     },
                     "attributes": {
-                        "primary_color": item.metadata.primary_color if item.metadata else None,
-                        "fabric": item.metadata.fabric_type if item.metadata else None,
-                        "weave": item.metadata.weave_style if item.metadata else None,
-                        "border": item.metadata.border_type if item.metadata else None,
-                        "pallu": item.metadata.pallu_style if item.metadata else None,
+                        "primary_color": item.metadata.primary_color if item.metadata else "Unknown",
+                        "fabric": item.metadata.fabric_type if item.metadata else "Unknown",
+                        "weave": item.metadata.weave_style if item.metadata else "Unknown",
+                        "border": item.metadata.border_type if item.metadata else "Unknown",
+                        "pallu": item.metadata.pallu_style if item.metadata else "Unknown",
                     },
                     "visual_explanation": item.visual_explanation,
                 })

@@ -5,11 +5,11 @@ and fine-grained multi-modal reranking.
 """
 
 import logging
+from pathlib import Path
 import time
 from typing import Optional, Union
-from pathlib import Path
-from PIL import Image
 import uuid
+from PIL import Image
 
 from app.config import config
 from app.embeddings.image_encoder import BaseImageEncoder, get_image_encoder
@@ -55,6 +55,13 @@ class SareeSearchEngine:
         Returns:
             SearchResponse containing ranked results and latency metrics.
         """
+        if top_k <= 0:
+            raise ValueError(f"top_k must be a positive integer, received {top_k}")
+        if candidate_k <= 0:
+            raise ValueError(f"candidate_k must be a positive integer, received {candidate_k}")
+        if candidate_k < top_k:
+            candidate_k = top_k
+
         start_time = time.time()
         query_id = str(uuid.uuid4())[:8]
 
@@ -72,7 +79,7 @@ class SareeSearchEngine:
         # Stage 1: Generate normalized vision embedding
         query_vector = self.encoder.encode_image(query_img)
 
-        # Stage 2: Fast Vector Search (Retrieve broad candidate pool)
+        # Stage 2: Fast Vector Search (Retrieve broad candidate pool using candidate_k)
         candidates = self.vector_store.search(query_vector, top_k=candidate_k)
 
         # Stage 3: Fine-grained multi-modal reranking (Color + Texture + Composition)
@@ -99,7 +106,7 @@ _GLOBAL_ENGINE: Optional[SareeSearchEngine] = None
 
 
 def get_search_engine() -> SareeSearchEngine:
-    """Retrieve or lazily initialize the singleton search engine."""
+    """Retrieve singleton instance of SareeSearchEngine."""
     global _GLOBAL_ENGINE
     if _GLOBAL_ENGINE is None:
         _GLOBAL_ENGINE = SareeSearchEngine()

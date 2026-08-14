@@ -1,7 +1,7 @@
 """Fine-grained multi-modal visual reranker for saree similarity.
 
 Combines base vision embeddings with fine-grained color distributions,
-fabric texture/weave patterns, and spatial border/pallu composition analysis.
+fabric texture/weave patterns, and spatial composition analysis.
 """
 
 from dataclasses import dataclass
@@ -79,7 +79,6 @@ class FineGrainedSareeReranker:
 
         # 2. Dominant Colors (Mean of sorted pixel clusters)
         pixels = arr.reshape(-1, 3)
-        # Quantize to find primary color clusters
         quantized = np.round(pixels * 5) / 5.0
         unique_colors, counts = np.unique(quantized, axis=0, return_counts=True)
         top_indices = np.argsort(counts)[::-1][:3]
@@ -90,7 +89,6 @@ class FineGrainedSareeReranker:
 
         # 3. Texture Profile (Sobel gradient magnitude for weave / pattern density)
         gray = 0.2989 * arr[:, :, 0] + 0.5870 * arr[:, :, 1] + 0.1140 * arr[:, :, 2]
-        # Horizontal & Vertical gradients
         grad_x = np.abs(gray[:, 1:] - gray[:, :-1])
         grad_y = np.abs(gray[1:, :] - gray[:-1, :])
 
@@ -98,11 +96,10 @@ class FineGrainedSareeReranker:
         std_gx = float(np.std(grad_x))
         mean_gy = float(np.mean(grad_y))
         std_gy = float(np.std(grad_y))
-        # High-frequency edge density ratio
         high_freq_ratio = float(np.mean(grad_x > 0.15) + np.mean(grad_y > 0.15)) / 2.0
         texture_profile = np.array([mean_gx, std_gx, mean_gy, std_gy, high_freq_ratio], dtype=np.float32)
 
-        # 4. Spatial 3x3 Grid Layout (Upper pleats, lower body, side border/pallu zones)
+        # 4. Spatial 3x3 Grid Layout
         grid_feats = []
         h_step, w_step = 160 // 3, 160 // 3
         for r in range(3):
@@ -119,29 +116,24 @@ class FineGrainedSareeReranker:
         )
 
     def compute_color_similarity(self, query_feat: VisualFeatures, candidate_feat: VisualFeatures) -> float:
-        """Calculate histogram intersection and dominant color distance."""
-        # 1. Histogram intersection: sum(min(q_i, c_i))
+        """Calculate histogram intersection and dominant color proximity."""
         intersection = np.sum(np.minimum(query_feat.color_hist, candidate_feat.color_hist))
         hist_sim = float(np.clip(intersection, 0.0, 1.0))
 
-        # 2. Dominant color Euclidean proximity
         diffs = np.linalg.norm(query_feat.dominant_colors - candidate_feat.dominant_colors, axis=1)
         dom_sim = float(np.clip(1.0 - np.mean(diffs) / np.sqrt(3.0), 0.0, 1.0))
 
         return 0.7 * hist_sim + 0.3 * dom_sim
 
     def compute_texture_similarity(self, query_feat: VisualFeatures, candidate_feat: VisualFeatures) -> float:
-        """Calculate pattern and fabric weave density similarity."""
-        # Normalized distance between texture profiles
+        """Calculate texture and pattern gradient statistics similarity."""
         diff = np.abs(query_feat.texture_profile - candidate_feat.texture_profile)
-        # Scale factors for gradient means/stds
         scales = np.array([0.2, 0.2, 0.2, 0.2, 0.4], dtype=np.float32)
         norm_diff = np.sum(diff * scales)
         return float(np.clip(1.0 - norm_diff, 0.0, 1.0))
 
     def compute_composition_similarity(self, query_feat: VisualFeatures, candidate_feat: VisualFeatures) -> float:
-        """Calculate 3x3 spatial layout and border alignment similarity."""
-        # Cosine similarity of spatial grid RGB vectors
+        """Calculate 3x3 spatial layout cosine similarity."""
         q_grid = query_feat.spatial_layout
         c_grid = candidate_feat.spatial_layout
         dot = np.dot(q_grid, c_grid)
@@ -171,7 +163,6 @@ class FineGrainedSareeReranker:
             # Base embedding score from FAISS [-1.0, 1.0] -> normalize to [0.0, 1.0]
             emb_sim = float(np.clip((base_emb_score + 1.0) / 2.0 if base_emb_score < 0 else base_emb_score, 0.0, 1.0))
 
-            # Load candidate image to extract fine-grained descriptors
             rel_path = meta_dict.get("relative_path", "")
             img_path = config.storage.images_dir / rel_path if rel_path else None
 
@@ -211,7 +202,7 @@ class FineGrainedSareeReranker:
             explanation = self._generate_visual_explanation(breakdown, metadata_obj)
 
             item = SearchResultItem(
-                rank=0,  # Updated after sorting
+                rank=0,
                 image_id=image_id,
                 relative_path=rel_path,
                 score=round(final_score, 4),
@@ -237,30 +228,30 @@ class FineGrainedSareeReranker:
         breakdown: SimilarityBreakdown,
         meta: Optional[SareeMetadata],
     ) -> str:
-        """Create a deterministic, natural visual explanation for the match."""
+        """Create a truthful visual explanation based solely on measured similarity metrics."""
         parts = []
 
         # Color evaluation
         if breakdown.color_similarity >= 0.85:
-            parts.append("strong color harmony with matched dominant hues")
+            parts.append("strong color distribution match and shared dominant hues")
         elif breakdown.color_similarity >= 0.70:
-            parts.append("compatible tonal palette")
+            parts.append("compatible tonal color distribution")
 
-        # Texture / Weave evaluation
+        # Texture profile evaluation
         if breakdown.texture_similarity >= 0.82:
-            parts.append("closely matching weave density and surface texture")
+            parts.append("closely matching texture gradient statistics")
         elif breakdown.texture_similarity >= 0.65:
-            parts.append("similar fabric structure")
+            parts.append("similar texture profile")
 
-        # Composition / Layout evaluation
+        # Spatial composition evaluation
         if breakdown.composition_similarity >= 0.80:
-            parts.append("aligned border and pallu spatial layout")
+            parts.append("aligned 3x3 spatial color layout")
 
         if not parts:
-            parts.append("overall aesthetic style and drape similarity")
+            parts.append("overall semantic visual embedding similarity")
 
-        explanation = f"Matches query with {breakdown.final_score * 100:.0f}% similarity: " + ", ".join(parts) + "."
-        if meta and meta.fabric_type:
-            explanation += f" ({meta.fabric_type} weave, {meta.border_type or 'traditional border'})"
+        explanation = f"Matches query ({breakdown.final_score * 100:.0f}% overall similarity): " + ", ".join(parts) + "."
+        if meta and meta.fabric_type and meta.fabric_type != "Unknown":
+            explanation += f" (Catalog fabric: {meta.fabric_type})"
 
         return explanation

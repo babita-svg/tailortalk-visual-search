@@ -19,6 +19,8 @@ def mock_search_pipeline():
         image_id="saree_sample",
         filename="sample.jpg",
         relative_path="sample.jpg",
+        file_size_bytes=1024,
+        dimensions=(800, 600),
         fabric_type="Silk",
         primary_color="Green",
         weave_style="Kanjeevaram",

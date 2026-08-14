@@ -10,13 +10,13 @@ from app.config import config
 
 def test_encoder_singleton_and_dimension():
     """Test loading the image encoder and verifying output dimensions."""
-    encoder = ImageEncoder()
+    encoder = ImageEncoder(allow_test_fallback=True)
     assert encoder.dimension == config.model.embedding_dim
 
 
 def test_encode_image_shape_and_normalization():
     """Test encoding a synthetic PIL image produces unit-norm (L2 norm ~1.0) vectors."""
-    encoder = ImageEncoder()
+    encoder = ImageEncoder(allow_test_fallback=True)
     img = Image.new("RGB", (224, 224), color=(100, 150, 200))
     
     vec = encoder.encode_image(img)
@@ -31,7 +31,7 @@ def test_encode_image_shape_and_normalization():
 
 def test_deterministic_embeddings():
     """Test that identical images produce identical embedding vectors."""
-    encoder = ImageEncoder()
+    encoder = ImageEncoder(allow_test_fallback=True)
     img1 = Image.new("RGB", (224, 224), color=(200, 40, 80))
     img2 = Image.new("RGB", (224, 224), color=(200, 40, 80))
     
@@ -43,7 +43,7 @@ def test_deterministic_embeddings():
 
 def test_batch_encoding():
     """Test batch encoding multiple images."""
-    encoder = ImageEncoder()
+    encoder = ImageEncoder(allow_test_fallback=True)
     images = [
         Image.new("RGB", (224, 224), color=(i * 20, 100, 150))
         for i in range(3)

@@ -50,34 +50,43 @@ class IngestionPipeline:
             found.extend(self.images_dir.rglob(f"*{ext}"))
             found.extend(self.images_dir.rglob(f"*{ext.upper()}"))
 
-        # Deduplicate and sort for deterministic order
+        # Deduplicate paths and sort for deterministic order
         unique_images = sorted(list(set(found)))
         logger.info(f"Discovered {len(unique_images)} candidate images in '{self.images_dir}'")
         return unique_images
 
     def run(self, force_reindex: bool = False) -> int:
-        """Execute the ingestion pipeline."""
+        """Execute the ingestion pipeline with strict duplicate prevention and clean reindexing."""
         start_time = time.time()
-        logger.info("Starting TailorTalk Saree Ingestion Pipeline...")
+        logger.info(f"Starting TailorTalk Saree Ingestion Pipeline (force_reindex={force_reindex})...")
+
+        if force_reindex:
+            logger.info("force_reindex=True: resetting vector index and clearing previous state.")
+            self.vector_store.clear()
 
         image_paths = self.discover_images()
         if not image_paths:
             logger.warning("No images found to index. Dataset directory is currently empty.")
             return 0
 
-        # Validate images and filter out corrupt ones
+        # Validate images and filter out corrupt ones, deduplicating by stem (image ID)
         valid_paths: List[Path] = []
+        seen_ids = set()
         for p in image_paths:
             try:
                 ImageValidator.validate_file_path(p)
-                # Verify loadability
                 with Image.open(p) as img:
                     img.verify()
+                img_id = p.stem
+                if img_id in seen_ids:
+                    logger.warning(f"Duplicate image ID '{img_id}' encountered at '{p}'. Skipping duplicate.")
+                    continue
+                seen_ids.add(img_id)
                 valid_paths.append(p)
             except Exception as e:
                 logger.warning(f"Skipping invalid/corrupt image '{p.name}': {str(e)}")
 
-        logger.info(f"Verified {len(valid_paths)} / {len(image_paths)} images successfully.")
+        logger.info(f"Verified {len(valid_paths)} unique valid images for indexing.")
 
         if not valid_paths:
             raise IngestionError("No valid images available for indexing.")
@@ -114,7 +123,7 @@ class IngestionPipeline:
                 all_ids.append(meta.image_id)
                 all_metadata.append(meta.model_dump())
 
-            logger.info(f"Processed batch {b_idx + 1}/{total_batches} ({len(all_vectors)} images indexed)")
+            logger.info(f"Processed batch {b_idx + 1}/{total_batches} ({len(all_vectors)} images prepared)")
 
         # Populate and persist vector store
         if all_vectors:
@@ -142,7 +151,8 @@ def main():
         index_dir=args.index_dir,
         batch_size=args.batch_size,
     )
-    pipeline.run(force_reindex=args.force)
+    count = pipeline.run(force_reindex=args.force)
+    print(f"Indexed {count} saree images.")
 
 
 if __name__ == "__main__":

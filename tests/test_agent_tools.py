@@ -15,6 +15,8 @@ def mock_search_response():
         image_id="banarasi_crimson",
         filename="banarasi_crimson_red_gold_zari_brocade.jpg",
         relative_path="banarasi_crimson_red_gold_zari_brocade.jpg",
+        file_size_bytes=2048,
+        dimensions=(800, 1000),
         primary_color="Crimson Red",
         fabric_type="Pure Katan Silk",
         weave_style="Banarasi Brocade",
@@ -27,6 +29,7 @@ def mock_search_response():
         color_similarity=0.88,
         texture_similarity=0.85,
         composition_similarity=0.80,
+        final_score=0.895,
     )
     result = SearchResultItem(
         rank=1,
@@ -41,8 +44,9 @@ def mock_search_response():
     return SearchResponse(
         query_id="q123",
         query_source="query.jpg",
-        results=[result],
         total_candidates_retrieved=20,
+        total_results_returned=1,
+        results=[result],
         execution_time_ms=25.4,
     )
 

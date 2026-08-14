@@ -1,79 +1,171 @@
-# TailorTalk — Fine-Grained Visual Saree Similarity Search & Conversational Stylist
+# TailorTalk Visual Search
 
-TailorTalk is an intelligent visual retrieval and conversational fashion styling system designed for Indian sarees. It combines deep vision models, vector similarity indexing, and multi-signal reranking with an LLM-powered agent to deliver accurate visual recommendations based on weave texture, color harmony, zari patterns, and border motifs.
+## 1. Overview
 
----
+TailorTalk is a fine-grained visual search and conversational styling system tailored for Indian sarees. Given a query image or image URL, TailorTalk retrieves visually and stylistically harmonious sarees from a structured catalog using a multi-stage pipeline: semantic embedding retrieval followed by fine-grained visual reranking based on color distributions, weave textures, and spatial composition. It also provides an agentic tool-calling conversational assistant to answer drape, occasion, and textile styling questions.
 
-## Architecture Overview
+## 2. Key Capabilities
+
+- **Visual Similarity Search**: Dual-stage retrieval matching query images against catalog inventory using normalized OpenCLIP visual vectors and fine-grained visual signals.
+- **Fine-Grained Visual Reranking**: Composite scoring combining semantic embeddings, HSV color histograms, high-frequency Sobel texture gradients, and 3x3 spatial grid layouts.
+- **Conversational Styling Agent**: LLM agent with structured tool-calling (`VisualSareeSimilaritySearchTool`) that distinguishes styling advice queries from visual similarity searches.
+- **Defensive Ingestion & SSRF Protection**: Comprehensive input validation blocking private RFC 1918 IPs, loopbacks, link-local metadata endpoints, path traversals, and oversized payloads.
+- **Quantitative Retrieval Benchmark**: Automated evaluation framework computing Recall@1, Recall@5, Recall@10, MRR, and nDCG@5 with self-retrieval exclusion.
+
+## 3. Architecture
 
 ```
-                                  [ User Input ]
-                         (Image Upload / URL / Text Query)
-                                        │
-                                        ▼
-                           ┌─────────────────────────┐
-                           │   Input Sanitization    │
-                           │     & Validation        │
-                           └────────────┬────────────┘
-                                        │
-                    ┌───────────────────┴───────────────────┐
-                    ▼                                       ▼
-         [ Visual Similarity Search ]               [ Conversational Agent ]
-                    │                                       │
-        ┌───────────┴───────────┐                           │
-        ▼                       ▼                           │
-  [ OpenCLIP ViT ]      [ Visual Feature Engine ]           │
-  (512-dim Vector)     (HSV, Texture, Composition)          │
-        │                       │                           │
-        ▼                       │                           │
- ┌──────────────┐               │                           │
- │ FAISS Index  │               │                           │
- │ (Stage-1 IP) │               │                           │
- └──────┬───────┘               │                           │
-        │ Candidate IDs         │                           │
-        ▼                       ▼                           │
- ┌──────────────────────────────────────┐                   │
- │       Stage-2 Fine-Grained           │                   │
- │             Reranker                 │                   │
- └──────────────────┬───────────────────┘                   │
-                    │ Ranked Matches & Similarity           │
-                    ▼                                       │
-         [ Structured Response ] ◄──────────────────────────┘
-                    │            (Tool Invocation & Reasoning)
-                    ▼
-         [ Web / Streamlit UI ]
+User Input (Image Upload / URL / Text)
+  │
+  ▼
+Input Sanitization & SSRF Defense
+  │
+  ├─────────────────────────────────────────────┐
+  ▼                                             ▼
+Visual Similarity Search Engine           Conversational Agent
+  │                                             │
+  ├───────────────────────┐                     │ Function Calling
+  ▼                       ▼                     │
+OpenCLIP ViT-B/32   Visual Feature Engine       │
+(512-dim Embedding) (HSV, Sobel, Grid Layout)   │
+  │                       │                     │
+  ▼                       │                     │
+FAISS IndexFlatIP         │                     │
+(Stage-1 Candidate Top-K) │                     │
+  │                       │                     │
+  └───────────┬───────────┘                     │
+              ▼                                 │
+     Stage-2 Fine-Grained                       │
+           Reranker                             │
+              │                                 │
+              ▼                                 │
+      Ranked Results & Similarity ──────────────┘
+              │
+              ▼
+   Interactive Web UI / Streamlit
 ```
 
----
+## 4. Retrieval Pipeline
 
-## Key Features
+1. **Stage 1 — Semantic Embedding Retrieval**:
+   - Query image is preprocessed and encoded into a 512-dimensional unit-normalized vector using OpenCLIP (`ViT-B-32` trained on `laion2b_s34b_b79k`).
+   - FAISS `IndexFlatIP` performs fast inner-product search (cosine similarity on L2-normalized vectors) across catalog embeddings to retrieve the top `candidate_k` candidates (default: 20-50).
 
-1. **Multi-Stage Retrieval Engine**:
-   - **Stage 1 (High-Recall Candidate Retrieval)**: Generates 512-dimensional L2-normalized embeddings via OpenCLIP (ViT-B-32) and performs inner-product cosine search in FAISS (`IndexFlatIP`).
-   - **Stage 2 (Fine-Grained Visual Reranking)**: Scores candidates using a weighted multi-signal visual metric:
+2. **Stage 2 — Fine-Grained Visual Reranking**:
+   - Computes weighted multi-signal similarity scores over the candidate set:
      $$\text{Score} = w_{\text{emb}} \cdot S_{\text{emb}} + w_{\text{col}} \cdot S_{\text{col}} + w_{\text{tex}} \cdot S_{\text{tex}} + w_{\text{comp}} \cdot S_{\text{comp}}$$
-     - **Color Distribution ($S_{\text{col}}$)**: Multi-channel HSV/Lab color histograms with Bhattacharyya distance.
-     - **Weave Texture ($S_{\text{tex}}$)**: High-frequency Sobel gradient magnitude profiles capturing fine zari and jacquard weaves.
-     - **Spatial Composition ($S_{\text{comp}}$)**: $3 \times 3$ sub-region grid layout matching pallu, body, and border placements.
+   - Normalizes scores into a deterministic 0–100 visual similarity metric and generates grounded visual explanations.
 
-2. **Conversational Stylist Agent**:
-   - Genuine function/tool-calling architecture via `VisualSareeSimilaritySearchTool`.
-   - Distinguishes conversational styling questions from visual search requests.
-   - Provides comparative analysis explaining similarities in weave, fabric, and zari work.
+## 5. Fine-Grained Similarity Signals
 
-3. **Production Web Interface**:
-   - Live visual search with instant preview, extracted dominant color palette chips, and score breakdowns.
-   - Sample query gallery for immediate evaluation across authentic saree categories (Banarasi, Kanjeevaram, Chanderi, Bandhani, Kalamkari, Patola, Paithani, Tussar, Organza).
-   - Real-time conversational interface with interactive chat.
+- **Embedding Similarity ($S_{\text{emb}}$)**: Cosine similarity between 512-dimensional OpenCLIP visual embeddings.
+- **Color Similarity ($S_{\text{col}}$)**: 3D HSV histogram correlation and Bhattacharyya distance across hue, saturation, and value distributions.
+- **Texture Similarity ($S_{\text{tex}}$)**: High-frequency Sobel gradient magnitude histograms capturing weave tightness, zari density, and jacquard patterns.
+- **Spatial Composition ($S_{\text{comp}}$)**: $3 \times 3$ spatial grid feature matching comparing corresponding regions (pallu, body, pleats, and border placement).
 
-4. **Security & Validation**:
-   - Strict image dimension, size (max 10MB), and format validation (JPEG, PNG, WEBP).
-   - URL scheme validation with SSRF safeguards.
-   - Path traversal prevention.
+## 6. Agent / Tool Architecture
 
----
+- The system implements an agent orchestrator with declared tool schemas (`VisualSareeSimilaritySearchTool`).
+- When a user provides an image or requests visual matching, the agent invokes the tool with `image_reference`, `top_k`, and `candidate_k`.
+- Tool responses return structured `SearchResponse` objects containing similarity breakdowns, fabric metadata, and grounded visual reasoning.
+- Non-search styling queries (e.g., blouse pairing, draping techniques, jewellery selection) are answered directly using fashion domain system prompts.
 
-## Directory Structure
+## 7. Dataset / Catalogue
+
+- **Authentic Saree Catalog**: High-resolution catalog spanning key Indian textile traditions including Banarasi, Kanjeevaram, Chanderi, Bandhani, Kalamkari, Patola, Paithani, Tussar, and Organza.
+- **Metadata Attributes**: Primary color, fabric type, weave style, border type, zari type, and dimensions.
+- **Integrity**: Filename attributes are truthful and distinct from runtime visual feature extractions. When specific textile attributes are unknown, they are displayed as `Unknown` without synthetic fabrication.
+
+## 8. Evaluation
+
+The evaluation suite (`scripts/evaluate_retrieval.py`) benchmarks retrieval precision against ground-truth query-target pairs (`evaluation/ground_truth.json`).
+
+- **Query Set**: Curated representative queries across distinct textile categories.
+- **Self-Retrieval Exclusion**: Query images are explicitly removed from retrieved candidate sets to prevent trivial 1.0 matches.
+- **Metrics**: Recall@1, Recall@5, Recall@10, Mean Reciprocal Rank (MRR), and nDCG@5.
+
+## 9. Security
+
+- **SSRF Defense**: Validates URL schemes (`http`, `https`), enforces timeouts (10s), and resolves hostnames to reject private networks (RFC 1918), loopbacks (`127.0.0.0/8`, `::1`), link-local metadata endpoints (`169.254.169.254`), and broadcast addresses.
+- **Payload Limits**: Enforces 10 MB maximum image file size and 25,000,000 maximum pixel limit to prevent decompression bombs.
+- **Path Traversal Protection**: Ensures file paths resolve within authorized directory boundaries.
+
+## 10. Testing
+
+Test suite organized under `tests/`:
+- `test_embeddings.py`: OpenCLIP encoding, unit L2 normalization, dimension guarantees.
+- `test_vector_store.py`: FAISS vector store indexing, deduplication, search, and persistence.
+- `test_reranker.py`: Color histograms, Sobel texture gradients, spatial grid composition, and composite scoring.
+- `test_search.py`: End-to-end `SareeSearchEngine` retrieval flows.
+- `test_image_utils.py` & `test_security.py`: Image loading, SSRF prevention, IP validation, dimension bounds.
+- `test_agent.py` & `test_agent_tools.py`: Tool calling, conversational routing, prompt formatting.
+- `test_evaluation.py`: Mathematical metrics (DCG, nDCG, MRR, Recall@K).
+- `test_ingestion.py`: Metadata extraction, color palette analysis, attribute heuristics.
+
+## 11. Installation
+
+```bash
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Install Node dependencies for UI
+npm install
+```
+
+## 12. Configuration
+
+Create `.env` from `.env.example`:
+
+```bash
+cp .env.example .env
+```
+
+Available environment variables:
+- `GEMINI_API_KEY`: API key for conversational agent capabilities.
+- `DEVICE`: Processing device (`cpu` or `cuda`, default: `cpu`).
+- `DATASET_DIR`: Path to saree image dataset directory (default: `data/images`).
+- `INDEX_DIR`: Path to vector store index directory (default: `data/index`).
+
+## 13. Build Index
+
+Index catalog images into FAISS binary index and metadata cache:
+
+```bash
+python scripts/build_index.py
+```
+
+## 14. Run Application
+
+To launch the full-stack web application:
+
+```bash
+npm run build
+node dist/server.cjs
+```
+
+To launch the Streamlit prototype:
+
+```bash
+streamlit run app.py
+```
+
+## 15. Run Tests
+
+Execute the unit and integration test suite:
+
+```bash
+pytest
+```
+
+## 16. Run Evaluation
+
+Run the quantitative retrieval evaluation benchmark:
+
+```bash
+python scripts/evaluate_retrieval.py
+```
+
+## 17. Project Structure
 
 ```
 ├── app/
@@ -85,7 +177,7 @@ TailorTalk is an intelligent visual retrieval and conversational fashion styling
 │   │   └── image_encoder.py   # OpenCLIP ViT-B-32 embedding encoder
 │   ├── image_utils/           # Image validation, security, and loading
 │   │   ├── loader.py          # Robust image loader (file, bytes, URL)
-│   │   └── validation.py      # Format, dimension, and URL validator
+│   │   └── validation.py      # Format, dimension, and SSRF validator
 │   ├── ingestion/             # Catalog discovery, metadata & indexing
 │   │   ├── metadata.py        # Color palette & attribute extraction
 │   │   └── pipeline.py        # End-to-end ingestion pipeline
@@ -97,11 +189,15 @@ TailorTalk is an intelligent visual retrieval and conversational fashion styling
 │   ├── exceptions.py          # Domain-specific exception hierarchy
 │   └── schemas.py             # Pydantic data contracts and models
 ├── data/
-│   ├── images/                # High-resolution authentic saree dataset
+│   ├── images/                # Saree image catalogue
 │   └── index/                 # FAISS binary index & metadata JSON
+├── evaluation/
+│   ├── ground_truth.json      # Ground truth query-relevance benchmark
+│   └── README.md              # Evaluation methodology and metrics guide
 ├── scripts/
 │   ├── build_index.py         # CLI tool to build/rebuild vector index
-│   └── evaluate_retrieval.py  # Precision, MRR, and latency evaluation suite
+│   ├── evaluate_retrieval.py  # Precision, MRR, and nDCG evaluation suite
+│   └── generate_sample_sarees.py # Catalog generator
 ├── tests/                     # Unit and integration test suite
 ├── ui/
 │   └── streamlit_app.py       # Streamlit web application
@@ -110,54 +206,17 @@ TailorTalk is an intelligent visual retrieval and conversational fashion styling
 └── requirements.txt           # Python dependencies
 ```
 
----
+## 18. Limitations
 
-## Getting Started
+- **Model Scale**: Currently runs OpenCLIP `ViT-B-32` on CPU/GPU. Larger backbones (`ViT-L-14`) offer higher textile fine-grain sensitivity but require greater GPU VRAM.
+- **Lighting & Angle Sensitivity**: Extreme shadows or angled flat-lays may skew spatial composition matching ($S_{\text{comp}}$).
+- **Metadata Availability**: Visual attributes not present in the catalog schema are classified as `Unknown` rather than synthetically guessed.
 
-### 1. Installation
+## 19. Future Improvements
 
-Install Python dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Build the Visual Vector Index
-
-Index the saree dataset into the FAISS vector database:
-
-```bash
-python scripts/build_index.py
-```
-
-### 3. Run the Streamlit Application
-
-```bash
-streamlit run app.py
-```
-
-### 4. Run the Full-Stack Web Application
-
-```bash
-npm run build
-node dist/server.cjs
-```
-
----
-
-## Evaluation & Benchmarking
-
-Execute the evaluation benchmark across curated query sets:
-
-```bash
-python scripts/evaluate_retrieval.py
-```
-
-Metrics evaluated:
-- **Precision@1 & Precision@K**: Correct fabric/weave category alignment.
-- **Mean Reciprocal Rank (MRR)**: Retrieval ranking quality.
-- **Query Latency (ms)**: End-to-end inference and reranking time.
-- **Similarity Breakdown**: Contribution of CLIP embeddings vs. fine-grained visual signals.
+- Incorporate dedicated textile segmentation masks to isolate the pallu and border prior to spatial grid calculation.
+- Support multi-modal text + image hybrid queries (e.g., "Find this Kanjeevaram design in emerald green").
+- Add batch vector search optimization for catalogs exceeding 100,000 SKU items.
 
 ---
 

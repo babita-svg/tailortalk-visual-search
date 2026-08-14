@@ -1,7 +1,7 @@
 """Vector store abstraction and FAISS implementation.
 
-Provides persistent vector indexing and fast inner-product (cosine) nearest-neighbor
-retrieval for saree image embeddings.
+Provides persistent vector indexing, fast inner-product (cosine) nearest-neighbor
+retrieval, strict duplicate prevention, index/model compatibility verification, and clean reset.
 """
 
 from abc import ABC, abstractmethod
@@ -52,6 +52,11 @@ class BaseVectorStore(ABC):
         """Check if a populated index is available on disk."""
         pass
 
+    @abstractmethod
+    def clear(self) -> None:
+        """Clear in-memory and on-disk index state."""
+        pass
+
 
 class FAISSVectorStore(BaseVectorStore):
     """FAISS-based vector index utilizing IndexFlatIP for exact cosine similarity."""
@@ -88,8 +93,23 @@ class FAISSVectorStore(BaseVectorStore):
         """Return number of indexed items."""
         return self._index.ntotal if self._index is not None else 0
 
+    def clear(self) -> None:
+        """Reset in-memory index structures and remove existing index files."""
+        self._initialize_empty_index()
+        if self.index_file.exists():
+            try:
+                self.index_file.unlink()
+            except Exception as e:
+                logger.warning(f"Could not delete index file '{self.index_file}': {e}")
+        if self.metadata_file.exists():
+            try:
+                self.metadata_file.unlink()
+            except Exception as e:
+                logger.warning(f"Could not delete metadata file '{self.metadata_file}': {e}")
+        logger.info("FAISS vector store cleared successfully.")
+
     def add(self, vectors: np.ndarray, image_ids: List[str], metadata: List[Dict[str, Any]]) -> None:
-        """Add vectors and associated metadata to FAISS index."""
+        """Add vectors and associated metadata to FAISS index with duplicate validation."""
         if len(vectors) == 0:
             return
 
@@ -98,9 +118,29 @@ class FAISSVectorStore(BaseVectorStore):
                 f"Mismatch in input lengths: {len(vectors)} vectors, {len(image_ids)} IDs, {len(metadata)} metadata items."
             )
 
+        # P0-9: Check for internal duplicates in input image_ids
+        if len(set(image_ids)) != len(image_ids):
+            seen = set()
+            dups = [x for x in image_ids if x in seen or seen.add(x)]
+            raise VectorStoreIndexError(f"Duplicate image IDs detected within input batch: {dups}")
+
+        # P0-9: Check for duplicate IDs against existing index
+        existing_conflicts = [img_id for img_id in image_ids if img_id in self._id_to_index]
+        if existing_conflicts:
+            raise VectorStoreIndexError(
+                f"Duplicate vector IDs: {len(existing_conflicts)} IDs already exist in index (e.g. '{existing_conflicts[0]}'). "
+                f"To overwrite the existing index from scratch, run with force_reindex=True."
+            )
+
         vectors = np.ascontiguousarray(vectors.astype(np.float32))
-        
-        # Verify normalization
+
+        # Check embedding dimension
+        if vectors.shape[1] != self.dimension:
+            raise VectorStoreIndexError(
+                f"Vector dimension mismatch: Received {vectors.shape[1]} dims, expected {self.dimension} dims."
+            )
+
+        # Verify unit L2 normalization for cosine inner-product
         norms = np.linalg.norm(vectors, axis=1, keepdims=True)
         norms = np.where(norms == 0, 1.0, norms)
         vectors = vectors / norms
@@ -123,7 +163,6 @@ class FAISSVectorStore(BaseVectorStore):
             List of (image_id, cosine_score, metadata_dict)
         """
         if self._index is None or self.count() == 0:
-            # Try lazy loading
             if self.exists():
                 self.load()
             else:
@@ -137,12 +176,12 @@ class FAISSVectorStore(BaseVectorStore):
         norm = np.where(norm == 0, 1.0, norm)
         query_vector = query_vector / norm
 
-        actual_k = min(top_k, self.count())
+        actual_k = min(max(1, top_k), self.count())
         if actual_k == 0:
             return []
 
         distances, indices = self._index.search(query_vector, actual_k)
-        
+
         results: List[Tuple[str, float, Dict[str, Any]]] = []
         for dist, idx in zip(distances[0], indices[0]):
             if idx == -1 or idx not in self._index_to_id:
@@ -160,7 +199,7 @@ class FAISSVectorStore(BaseVectorStore):
         return self._metadata_store.get(image_id)
 
     def save(self, index_path: Optional[Path] = None, metadata_path: Optional[Path] = None) -> None:
-        """Serialize FAISS index and metadata store to disk."""
+        """Serialize FAISS index and metadata store to disk with full header info."""
         target_index = index_path or self.index_file
         target_meta = metadata_path or self.metadata_file
 
@@ -169,9 +208,13 @@ class FAISSVectorStore(BaseVectorStore):
 
         try:
             faiss.write_index(self._index, str(target_index))
-            
+
             payload = {
+                "model_name": config.model.model_name,
+                "pretrained": config.model.pretrained,
                 "dimension": self.dimension,
+                "index_version": "1.0",
+                "pipeline_version": "1.0",
                 "total_items": self.count(),
                 "id_to_index": self._id_to_index,
                 "index_to_id": {str(k): v for k, v in self._index_to_id.items()},
@@ -185,7 +228,7 @@ class FAISSVectorStore(BaseVectorStore):
             raise VectorStoreIndexError(f"Failed to save FAISS index: {str(e)}") from e
 
     def load(self, index_path: Optional[Path] = None, metadata_path: Optional[Path] = None) -> bool:
-        """Load FAISS index and metadata from disk."""
+        """Load FAISS index and metadata from disk with full integrity validation."""
         target_index = index_path or self.index_file
         target_meta = metadata_path or self.metadata_file
 
@@ -198,13 +241,33 @@ class FAISSVectorStore(BaseVectorStore):
             with open(target_meta, "r", encoding="utf-8") as f:
                 payload = json.load(f)
 
-            self.dimension = payload.get("dimension", self._index.d)
+            loaded_dim = payload.get("dimension", self._index.d)
+            if self._index.d != self.dimension:
+                raise VectorStoreIndexError(
+                    f"Index dimension mismatch: FAISS file has dimension {self._index.d}, but current model expects {self.dimension}."
+                )
+
+            self.dimension = loaded_dim
             self._id_to_index = payload.get("id_to_index", {})
             self._index_to_id = {int(k): v for k, v in payload.get("index_to_id", {}).items()}
             self._metadata_store = payload.get("metadata", {})
 
-            logger.info(f"Loaded FAISS index with {self.count()} items from '{target_index}'.")
+            # P0-8: Strict index/metadata synchronization checks
+            if self._index.ntotal != len(self._metadata_store):
+                raise VectorStoreIndexError(
+                    f"Index corruption: FAISS vector count ({self._index.ntotal}) does not match metadata item count ({len(self._metadata_store)})."
+                )
+
+            if len(self._id_to_index) != self._index.ntotal or len(self._index_to_id) != self._index.ntotal:
+                raise VectorStoreIndexError(
+                    f"Index mapping mismatch: id_to_index ({len(self._id_to_index)}) or index_to_id ({len(self._index_to_id)}) "
+                    f"does not match vector count ({self._index.ntotal})."
+                )
+
+            logger.info(f"Loaded and verified FAISS index with {self.count()} items from '{target_index}'.")
             return True
         except Exception as e:
+            if isinstance(e, VectorStoreIndexError):
+                raise
             logger.error(f"Failed to load FAISS index: {str(e)}")
             raise VectorStoreIndexError(f"Could not load index: {str(e)}") from e
